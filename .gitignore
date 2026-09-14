@@ -1,0 +1,31 @@
+# Local Claude development
+CLAUDE.md
+.claude/
+
+# Build output (publish MKPs as GitHub release assets)
+dist/
+*.mkp
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv*/
+.dev/
+
+# Test / coverage output
+.coverage
+htmlcov/
+
+# Local environment files
+.env
+.env.local
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/
