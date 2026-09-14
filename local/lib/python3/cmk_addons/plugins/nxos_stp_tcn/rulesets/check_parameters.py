@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Cisco Nexus STP topology change monitoring for Checkmk (nxos_stp_tcn)
+# Copyright (C) 2026 John Jimenez & Cledir Justo
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Rulesets: thresholds and VLAN selection for "STP Topology VLAN <id>" services."""
 
 from collections.abc import Mapping
@@ -25,7 +28,6 @@ from cmk.rulesets.v1.rule_specs import (
     HostAndItemCondition,
     Topic,
 )
-
 from cmk_addons.plugins.nxos_stp_tcn.lib.vlan_ranges import parse_vlan_ranges
 
 _MAGNITUDES = [TimeMagnitude.DAY, TimeMagnitude.HOUR, TimeMagnitude.MINUTE]

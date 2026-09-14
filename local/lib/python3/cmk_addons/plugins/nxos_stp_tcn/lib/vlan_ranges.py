@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Cisco Nexus STP topology change monitoring for Checkmk (nxos_stp_tcn)
+# Copyright (C) 2026 John Jimenez & Cledir Justo
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Parsing of VLAN ID lists such as "10, 20-30, 200".
 
 Shared by the discovery ruleset (validation) and the check plugin (filtering).

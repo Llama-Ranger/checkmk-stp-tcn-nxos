@@ -1,3 +1,6 @@
+# Cisco Nexus STP topology change monitoring for Checkmk (nxos_stp_tcn)
+# Copyright (C) 2026 John Jimenez & Cledir Justo
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Special agent tests with a fake Net-SNMP. Output formats mirror the real NX-OS captures."""
 
 import stat
@@ -23,12 +26,21 @@ WALK = "\n".join(
 )
 
 GETS = {
-    (None, ".1.3.6.1.2.1.1.3.0"): ".1.3.6.1.2.1.1.3.0 = Timeticks: (2590160436) 299 days, 18:53:24.36",
+    (
+        None,
+        ".1.3.6.1.2.1.1.3.0",
+    ): ".1.3.6.1.2.1.1.3.0 = Timeticks: (2590160436) 299 days, 18:53:24.36",
     ("1", ".1.3.6.1.2.1.17.2.4.0"): ".1.3.6.1.2.1.17.2.4.0 = Counter32: 6",
-    ("1", ".1.3.6.1.2.1.17.2.3.0"): ".1.3.6.1.2.1.17.2.3.0 = Timeticks: (2586192400) 299 days, 7:52:04.00",
+    (
+        "1",
+        ".1.3.6.1.2.1.17.2.3.0",
+    ): ".1.3.6.1.2.1.17.2.3.0 = Timeticks: (2586192400) 299 days, 7:52:04.00",
     ("200", ".1.3.6.1.2.1.17.2.4.0"): ".1.3.6.1.2.1.17.2.4.0 = Counter32: 37",
     ("200", ".1.3.6.1.2.1.17.2.3.0"): ".1.3.6.1.2.1.17.2.3.0 = Timeticks: 2586624300",
-    ("1212", ".1.3.6.1.2.1.17.2.4.0"): ".1.3.6.1.2.1.17.2.4.0 = No Such Instance currently exists at this OID",
+    (
+        "1212",
+        ".1.3.6.1.2.1.17.2.4.0",
+    ): ".1.3.6.1.2.1.17.2.4.0 = No Such Instance currently exists at this OID",
 }
 
 
@@ -49,10 +61,14 @@ class FakeSnmp:
         oid = command[-1]
         if Path(command[0]).name == "snmpwalk":
             if self.walk_rc:
-                return subprocess.CompletedProcess(command, 1, "", "Timeout: No Response from udp:192.0.2.10:161.\n")
+                return subprocess.CompletedProcess(
+                    command, 1, "", "Timeout: No Response from udp:192.0.2.10:161.\n"
+                )
             return subprocess.CompletedProcess(command, 0, WALK, "")
         if context == "30":
-            return subprocess.CompletedProcess(command, 1, "", "Timeout: No Response from udp:192.0.2.10:161.\n")
+            return subprocess.CompletedProcess(
+                command, 1, "", "Timeout: No Response from udp:192.0.2.10:161.\n"
+            )
         return subprocess.CompletedProcess(command, 0, GETS.get((context, oid), "") + "\n", "")
 
 
@@ -94,7 +110,9 @@ def test_full_run(
     contexts = [c[c.index("-n") + 1] for c in fake.commands if "-n" in c]
     assert not any(ctx.startswith("vlan-") for ctx in contexts)  # vlan-<id> is unreliable
     # one OID per request (NX-OS answers only the first varbind inside a context)
-    assert all(c[-1].startswith(".1.3.6.1") and not c[-2].startswith(".1.3.6.1") for c in fake.commands)
+    assert all(
+        c[-1].startswith(".1.3.6.1") and not c[-2].startswith(".1.3.6.1") for c in fake.commands
+    )
 
 
 def test_credentials_never_on_command_line_and_conf_is_private(
@@ -163,12 +181,27 @@ def test_conf_quoting(agent_module: ModuleType) -> None:
     "stdout, stderr, rc, expected",
     [
         (".1.3.6.1.2.1.17.2.4.0 = Counter32: 37\n", "", 0, ("ok", "37")),
-        (".1.3.6.1.2.1.17.2.3.0 = Timeticks: (10369600) 1 day, 4:48:16.00\n", "", 0, ("ok", "10369600")),
+        (
+            ".1.3.6.1.2.1.17.2.3.0 = Timeticks: (10369600) 1 day, 4:48:16.00\n",
+            "",
+            0,
+            ("ok", "10369600"),
+        ),
         (".1.3.6.1.2.1.17.2.3.0 = Timeticks: 10369600\n", "", 0, ("ok", "10369600")),
-        (".1.3.6.1.2.1.17.2.3.0 = No Such Object available on this agent at this OID\n", "", 0, ("nosuch", None)),
+        (
+            ".1.3.6.1.2.1.17.2.3.0 = No Such Object available on this agent at this OID\n",
+            "",
+            0,
+            ("nosuch", None),
+        ),
         ("", "Timeout: No Response from udp:192.0.2.10:161.\n", 1, ("timeout", None)),
-        ("", "snmpget: Authentication failure (incorrect password, community or key)\n", 1, ("error", None)),
-        (".1.3.6.1.2.1.17.2.4.0 = STRING: \"garbage\"\n", "", 0, ("error", None)),
+        (
+            "",
+            "snmpget: Authentication failure (incorrect password, community or key)\n",
+            1,
+            ("error", None),
+        ),
+        ('.1.3.6.1.2.1.17.2.4.0 = STRING: "garbage"\n', "", 0, ("error", None)),
     ],
 )
 def test_parse_get(

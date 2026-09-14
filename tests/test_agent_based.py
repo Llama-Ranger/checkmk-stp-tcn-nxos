@@ -1,10 +1,12 @@
+# Cisco Nexus STP topology change monitoring for Checkmk (nxos_stp_tcn)
+# Copyright (C) 2026 John Jimenez & Cledir Justo
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Check plugin tests. Values are taken from the real NX-OS 10.2(5) validation (see docs)."""
 
 from collections.abc import Mapping, MutableMapping
 from typing import Any
 
 from cmk.agent_based.v2 import Metric, Result, Service, State
-
 from cmk_addons.plugins.nxos_stp_tcn.agent_based import cisco_nexus_stp as stp
 
 DEFAULTS = stp.check_plugin_nxos_stp_tcn.check_default_parameters

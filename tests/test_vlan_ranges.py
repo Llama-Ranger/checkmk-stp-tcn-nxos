@@ -1,5 +1,7 @@
+# Cisco Nexus STP topology change monitoring for Checkmk (nxos_stp_tcn)
+# Copyright (C) 2026 John Jimenez & Cledir Justo
+# SPDX-License-Identifier: GPL-2.0-or-later
 import pytest
-
 from cmk_addons.plugins.nxos_stp_tcn.lib.vlan_ranges import parse_vlan_ranges
 
 

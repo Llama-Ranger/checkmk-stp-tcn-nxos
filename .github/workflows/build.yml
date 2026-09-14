@@ -1,0 +1,118 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Lint
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Check the package manifest and versions
+        run: python3 scripts/build_mkp.py --check
+
+  test:
+    name: test (Checkmk ${{ matrix.checkmk }}, Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Python versions match the ones the Checkmk sites ship with.
+          - checkmk: "2.4.0"
+            python: "3.12"
+            packages: cmk-agent-based cmk-rulesets cmk-graphing cmk-server-side-calls cmk-mkp-tool
+          - checkmk: "2.5.0"
+            python: "3.13"
+            packages: cmk-plugin-apis cmk-mkp-tool
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      # The plug-in APIs are not published on PyPI; install them from the
+      # Checkmk source of the exact release branch, outside the workspace.
+      - name: Fetch the Checkmk ${{ matrix.checkmk }} plug-in APIs
+        env:
+          CHECKMK_REF: ${{ matrix.checkmk }}
+          PACKAGES: ${{ matrix.packages }}
+        run: |
+          src="$RUNNER_TEMP/checkmk"
+          git clone --quiet --depth 1 --filter=blob:none --sparse --branch "$CHECKMK_REF" \
+            https://github.com/Checkmk/checkmk.git "$src"
+          git -C "$src" sparse-checkout set $(for p in $PACKAGES; do printf 'packages/%s ' "$p"; done)
+          echo "CHECKMK_SRC=$src" >> "$GITHUB_ENV"
+
+      # Editable installs on purpose: building wheels from the partial checkout
+      # fails (setup files outside the sparse set), the editable install does not.
+      - name: Install the plug-in APIs and test dependencies
+        env:
+          PACKAGES: ${{ matrix.packages }}
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest pydantic cryptography
+          for p in $PACKAGES; do python -m pip install -e "$CHECKMK_SRC/packages/$p"; done
+
+      - name: Test
+        run: python -m pytest -q
+
+      - name: Build the package
+        run: python scripts/build_mkp.py
+
+      - uses: actions/upload-artifact@v4
+        if: matrix.checkmk == '2.4.0'
+        with:
+          name: mkp
+          path: dist/*.mkp
+
+  release:
+    needs: [lint, test]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build the package
+        run: python3 scripts/build_mkp.py
+
+      - name: Check that the tag matches the package version
+        run: |
+          version="$(python3 -c 'import json;print(json.load(open("package.manifest"))["version"])')"
+          if [ "refs/tags/v${version}" != "${GITHUB_REF}" ]; then
+            echo "tag ${GITHUB_REF} does not match package version ${version}" >&2
+            exit 1
+          fi
+
+      - name: Attach the .mkp to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.mkp
+          generate_release_notes: true

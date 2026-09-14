@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Cisco Nexus STP topology change monitoring for Checkmk (nxos_stp_tcn)
+# Copyright (C) 2026 John Jimenez & Cledir Justo
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Metrics, graphs and perfometer for "STP Topology VLAN <id>" services."""
 
 from cmk.graphing.v1 import Title

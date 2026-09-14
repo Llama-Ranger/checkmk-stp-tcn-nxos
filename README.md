@@ -1,17 +1,19 @@
 # nxos_stp_tcn: Cisco Nexus STP Topology Changes (Checkmk 2.4 / 2.5)
 
+[![build](https://github.com/Llama-Ranger/checkmk-stp-tcn-nxos/actions/workflows/build.yml/badge.svg)](https://github.com/Llama-Ranger/checkmk-stp-tcn-nxos/actions/workflows/build.yml)
+
 A Checkmk extension (MKP) that monitors spanning-tree topology changes **per VLAN** on Cisco Nexus
 switches over SNMPv3. It automatically discovers one service per VLAN, has configurable alert windows,
 and draws graphs. There is no CLI scraping and no per-switch custom check.
 
 | | |
 |---|---|
-| Package | `dist/nxos_stp_tcn-1.0.0.mkp` (build with `tools/build_mkp.py`) |
+| Package | `nxos_stp_tcn-<version>.mkp` from the [releases page](../../releases), or build it with `python3 scripts/build_mkp.py` |
 | Checkmk | 2.4.x and 2.5.x (Check API v2, Rulesets API v1, Graphing API v1, Server-side calls API v1) |
 | Verified devices | Nexus 9000 **C93240YC-FX2, NX-OS 10.2(5)** |
 | Not supported | Nexus 9000 C93180YC-FX3, NX-OS 10.4(5): the switch serves no BRIDGE-MIB STP objects over SNMP |
 | Authors | John Jimenez & Cledir Justo |
-| License | GNU General Public License v2 (GPLv2), see [LICENSE](LICENSE) |
+| License | GNU General Public License v2 or later (GPL-2.0-or-later), see [LICENSE](LICENSE) |
 
 Background and evidence: [docs/snmp-findings.md](docs/snmp-findings.md) (SNMP-vs-CLI comparisons) and
 [docs/architecture.md](docs/architecture.md).
@@ -61,7 +63,7 @@ Checkmk (rule "Cisco Nexus STP topology changes (SNMPv3 VLAN contexts)")
   └─ agent_based check "STP Topology VLAN %s" → rulesets → metrics/graphs
 ```
 
-Source tree (`src/cmk_addons/plugins/nxos_stp_tcn/`, installed to `~/local/lib/python3/cmk_addons/plugins/nxos_stp_tcn/`):
+Source tree (`local/lib/python3/cmk_addons/plugins/nxos_stp_tcn/`, installed to `~/local/lib/python3/cmk_addons/plugins/nxos_stp_tcn/`):
 
 ```
 agent_based/cisco_nexus_stp.py      section + check plugin
@@ -153,8 +155,9 @@ Perfometer: time since last change (0–7 days focus).
 
 The package requires Checkmk 2.4.0 or later. Do not install it on 2.3 or older.
 
-1. Copy `nxos_stp_tcn-1.0.0.mkp` to the Checkmk server.
-2. As the site user: `mkp add nxos_stp_tcn-1.0.0.mkp && mkp enable nxos_stp_tcn 1.0.0`
+1. Download `nxos_stp_tcn-<version>.mkp` from the [releases page](../../releases) (or build it, see
+   [Development](#17-development)) and copy it to the Checkmk server.
+2. As the site user: `mkp add nxos_stp_tcn-<version>.mkp && mkp enable nxos_stp_tcn <version>`
    (or **Setup → Maintenance → Extension packages → Upload package**).
 3. **Setup → General → Passwords**: add the SNMPv3 auth (and privacy) passphrase.
 4. For each Nexus host to monitor → **Properties → Monitoring agents → Checkmk agent / API integrations:
@@ -255,12 +258,42 @@ side by side.
 
 ## 17. Development
 
+The repository mirrors a site's layout: everything below `local/` can be copied 1:1 into `~/local/` of a
+Checkmk 2.4/2.5 test site. `package.manifest` lists the packaged files and holds the version.
+
+The tests run against Checkmk's **real** plug-in APIs, installed from the Checkmk source of the release
+branch (they are not on PyPI). CI does exactly this for 2.4.0 (Python 3.12) and 2.5.0 (Python 3.13).
+Clone outside the repository so ruff and git don't see it:
+
 ```bash
-# Tests (55) against both API versions; venvs contain Checkmk's plugin API packages from GitHub 2.4.0 / 2.5.0
-PYTHONDONTWRITEBYTECODE=1 <venv>/bin/python -m pytest -q -p no:cacheprovider tests
-# Build the MKP (needs cmk-mkp-tool)
-<venv>/bin/python tools/build_mkp.py
+# Checkmk 2.4 (for 2.5: --branch 2.5.0, python3.13, packages cmk-plugin-apis cmk-mkp-tool, plus cryptography)
+git clone --depth 1 --filter=blob:none --sparse --branch 2.4.0 https://github.com/Checkmk/checkmk.git ../checkmk-2.4.0
+git -C ../checkmk-2.4.0 sparse-checkout set packages/cmk-agent-based packages/cmk-rulesets \
+    packages/cmk-graphing packages/cmk-server-side-calls packages/cmk-mkp-tool
+python3.12 -m venv .venv
+.venv/bin/pip install pytest pydantic ruff
+# editable installs: building wheels from the partial checkout fails, -e works
+for p in cmk-agent-based cmk-rulesets cmk-graphing cmk-server-side-calls cmk-mkp-tool; do
+    .venv/bin/pip install -e ../checkmk-2.4.0/packages/$p
+done
+
+.venv/bin/python -m pytest -q                        # tests
+.venv/bin/ruff check . && .venv/bin/ruff format --check .   # lint, as in CI
+python3 scripts/build_mkp.py --check                 # manifest and version consistency only
+python3 scripts/build_mkp.py                         # -> dist/nxos_stp_tcn-<version>.mkp
+python3 scripts/build_mkp.py --update-manifest       # after adding/removing files below local/
 ```
+
+### CI and releases
+
+`.github/workflows/build.yml` runs on every push to `main` and on pull requests:
+- ruff lint and format check, manifest and version check
+- tests against Checkmk 2.4.0 and 2.5.0
+- MKP build, uploaded as the `mkp` workflow artifact
+
+To release, bump `version` in `package.manifest`, `pyproject.toml` and `__version__` in
+`libexec/agent_nxos_stp_tcn`, update `CHANGELOG.md`, and push a tag `v<version>`. The workflow checks that
+the tag matches the package version, builds the `.mkp` and attaches it to a GitHub release.
 
 ## 18. Future enhancements
 
@@ -274,6 +307,8 @@ PYTHONDONTWRITEBYTECODE=1 <venv>/bin/python -m pytest -q -p no:cacheprovider tes
 Copyright (C) 2026 John Jimenez & Cledir Justo
 
 This program is free software; you can redistribute it and/or modify it under the terms of the
-GNU General Public License version 2 as published by the Free Software Foundation. It is distributed
-in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the [LICENSE](LICENSE) file for the full text.
+GNU General Public License as published by the Free Software Foundation; either version 2 of the
+License, or (at your option) any later version (SPDX: `GPL-2.0-or-later`). It is distributed in the
+hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the [LICENSE](LICENSE) file for the full
+text of the GNU General Public License version 2.

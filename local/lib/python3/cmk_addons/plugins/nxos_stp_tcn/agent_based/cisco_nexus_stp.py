@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Cisco Nexus STP topology change monitoring for Checkmk (nxos_stp_tcn)
+# Copyright (C) 2026 John Jimenez & Cledir Justo
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Cisco Nexus spanning-tree topology changes per VLAN.
 
 Consumes the section written by the special agent ``agent_nxos_stp_tcn``::
@@ -20,21 +23,20 @@ from typing import Any
 
 from cmk.agent_based.v2 import (
     AgentSection,
-    check_levels,
     CheckPlugin,
     CheckResult,
     DiscoveryResult,
-    get_rate,
-    get_value_store,
     GetRateError,
     Metric,
-    render,
     Result,
     Service,
     State,
     StringTable,
+    check_levels,
+    get_rate,
+    get_value_store,
+    render,
 )
-
 from cmk_addons.plugins.nxos_stp_tcn.lib.vlan_ranges import parse_vlan_ranges
 
 # dot1dStpTimeSinceTopologyChange is a 32 bit TimeTicks value: it wraps after ~497 days.

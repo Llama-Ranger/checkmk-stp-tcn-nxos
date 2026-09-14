@@ -1,6 +1,8 @@
+# Cisco Nexus STP topology change monitoring for Checkmk (nxos_stp_tcn)
+# Copyright (C) 2026 John Jimenez & Cledir Justo
+# SPDX-License-Identifier: GPL-2.0-or-later
 from cmk.graphing.v1.graphs import Graph
 from cmk.graphing.v1.metrics import Metric
-
 from cmk_addons.plugins.nxos_stp_tcn.graphing import cisco_nexus_stp as graphing
 
 from .conftest import PLUGIN_DIR
@@ -29,5 +31,14 @@ def test_graphs_reference_defined_metrics() -> None:
 
 def test_checkman_present() -> None:
     text = (PLUGIN_DIR / "checkman" / "nxos_stp_tcn").read_text()
-    for key in ("title:", "agents:", "catalog:", "license:", "distribution:", "description:", "item:", "discovery:"):
+    for key in (
+        "title:",
+        "agents:",
+        "catalog:",
+        "license:",
+        "distribution:",
+        "description:",
+        "item:",
+        "discovery:",
+    ):
         assert key in text

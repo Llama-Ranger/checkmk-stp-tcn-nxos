@@ -1,5 +1,7 @@
+# Cisco Nexus STP topology change monitoring for Checkmk (nxos_stp_tcn)
+# Copyright (C) 2026 John Jimenez & Cledir Justo
+# SPDX-License-Identifier: GPL-2.0-or-later
 from cmk.server_side_calls.v1 import HostConfig, IPv4Config, Secret
-
 from cmk_addons.plugins.nxos_stp_tcn.server_side_calls.special_agent import (
     special_agent_nxos_stp_tcn as config,
 )

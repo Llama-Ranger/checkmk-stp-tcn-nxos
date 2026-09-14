@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Cisco Nexus STP topology change monitoring for Checkmk (nxos_stp_tcn)
+# Copyright (C) 2026 John Jimenez & Cledir Justo
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Checkmk special agent: Cisco Nexus spanning-tree topology changes per VLAN (SNMPv3).
 
 Part of the nxos_stp_tcn extension.
@@ -26,6 +29,8 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+
+__version__ = "1.0.0"
 
 SECTION_HEADER = "<<<nxos_stp_tcn:sep(59)>>>"
 
@@ -113,7 +118,7 @@ def resolve_secret(reference: str) -> str:
             pw_id, pw_file = reference.split(":", 1)
             return password_store.lookup(Path(pw_file), pw_id)
         return dereference_secret(reference).reveal()
-    except Exception as exc:  # the exception text is not trusted to be free of secrets
+    except Exception as exc:  # noqa: BLE001 - its text is not trusted to be free of secrets
         raise PasswordLookupError(
             f"Cannot read password {password_id!r} from the Checkmk password store"
             f" ({type(exc).__name__})"
@@ -326,7 +331,13 @@ def main(argv: Sequence[str] | None = None, runner: Runner = run_command) -> int
         creds = credentials_from_args(args)
         with private_snmp_environment(creds) as env:
             lines = collect(cfg, env, runner)
-    except (CollectorError, PasswordLookupError, ValueError, OSError, subprocess.SubprocessError) as exc:
+    except (
+        CollectorError,
+        PasswordLookupError,
+        ValueError,
+        OSError,
+        subprocess.SubprocessError,
+    ) as exc:
         if args.debug:
             raise
         sys.stderr.write(f"agent_nxos_stp_tcn: {exc}\n")

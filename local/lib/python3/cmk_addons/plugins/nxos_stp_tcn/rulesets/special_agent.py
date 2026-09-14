@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Cisco Nexus STP topology change monitoring for Checkmk (nxos_stp_tcn)
+# Copyright (C) 2026 John Jimenez & Cledir Justo
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Ruleset: enable the Cisco Nexus STP special agent on selected hosts."""
 
 from cmk.rulesets.v1 import Help, Title
@@ -64,9 +67,7 @@ def _form() -> Dictionary:
             ),
             "auth_protocol": DictElement(
                 required=True,
-                parameter_form=_choice(
-                    Title("Authentication protocol"), _AUTH_PROTOCOLS, "sha"
-                ),
+                parameter_form=_choice(Title("Authentication protocol"), _AUTH_PROTOCOLS, "sha"),
             ),
             "auth_password": DictElement(
                 required=True,
@@ -91,9 +92,7 @@ def _form() -> Dictionary:
                                     ),
                                     "priv_password": DictElement(
                                         required=True,
-                                        parameter_form=Password(
-                                            title=Title("Privacy passphrase")
-                                        ),
+                                        parameter_form=Password(title=Title("Privacy passphrase")),
                                     ),
                                 },
                             ),

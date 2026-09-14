@@ -1,3 +1,13 @@
+# Cisco Nexus STP topology change monitoring for Checkmk (nxos_stp_tcn)
+# Copyright (C) 2026 John Jimenez & Cledir Justo
+# SPDX-License-Identifier: GPL-2.0-or-later
+"""Shared test fixtures.
+
+The plug-ins live in ``local/lib/python3`` exactly as in a site, so that
+directory is put on ``sys.path``. The tests import Checkmk's real plug-in APIs
+(installed from the Checkmk source, see README "Development").
+"""
+
 import importlib.machinery
 import importlib.util
 import sys
@@ -6,10 +16,12 @@ from types import ModuleType
 
 import pytest
 
-SRC = Path(__file__).resolve().parents[1] / "src"
-PLUGIN_DIR = SRC / "cmk_addons" / "plugins" / "nxos_stp_tcn"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+PYTHON3_DIR = REPO_ROOT / "local" / "lib" / "python3"
+PLUGIN_DIR = PYTHON3_DIR / "cmk_addons" / "plugins" / "nxos_stp_tcn"
 
-sys.path.insert(0, str(SRC))
+if str(PYTHON3_DIR) not in sys.path:
+    sys.path.insert(0, str(PYTHON3_DIR))
 
 
 @pytest.fixture(scope="session")

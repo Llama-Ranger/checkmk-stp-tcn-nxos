@@ -1,0 +1,23 @@
+{
+    "author": "John Jimenez & Cledir Justo",
+    "description": "Monitors spanning-tree topology changes (TCN) per VLAN on Cisco Nexus (NX-OS) switches via SNMPv3. A special agent discovers the VLAN contexts from CISCO-CONTEXT-MAPPING-MIB and reads BRIDGE-MIB dot1dStpTopChanges and dot1dStpTimeSinceTopologyChange per numeric VLAN context. One service per VLAN, configurable CRIT/WARN windows (default CRIT < 12 h), optional change-rate levels, VLAN include/exclude filter, graphs.\n\nSetup: create a rule 'Cisco Nexus STP topology changes (SNMPv3 VLAN contexts)', set the hosts to 'Configured API integrations, no Checkmk agent', run service discovery.\nVerified on Nexus 9000 C93240YC-FX2 / NX-OS 10.2(5).\n\nLicense: GNU General Public License v2 or later (GPL-2.0-or-later).",
+    "download_url": "https://github.com/Llama-Ranger/checkmk-stp-tcn-nxos",
+    "files": {
+        "cmk_addons_plugins": [
+            "nxos_stp_tcn/agent_based/cisco_nexus_stp.py",
+            "nxos_stp_tcn/checkman/nxos_stp_tcn",
+            "nxos_stp_tcn/graphing/cisco_nexus_stp.py",
+            "nxos_stp_tcn/lib/vlan_ranges.py",
+            "nxos_stp_tcn/libexec/agent_nxos_stp_tcn",
+            "nxos_stp_tcn/rulesets/check_parameters.py",
+            "nxos_stp_tcn/rulesets/special_agent.py",
+            "nxos_stp_tcn/server_side_calls/special_agent.py"
+        ]
+    },
+    "name": "nxos_stp_tcn",
+    "title": "Cisco Nexus STP Topology Changes",
+    "version": "1.0.0",
+    "version.min_required": "2.4.0",
+    "version.packaged": "checkmk-stp-tcn-nxos build_mkp.py",
+    "version.usable_until": null
+}
