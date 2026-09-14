@@ -6,9 +6,9 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
-## [1.0.0] - not yet released
+## [1.0.0] - 2026-09-14
 
-First public release. Set the date here when tagging `v1.0.0`.
+First public release.
 
 ### Added
 
