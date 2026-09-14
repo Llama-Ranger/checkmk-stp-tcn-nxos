@@ -2,9 +2,10 @@
 
 [![build](https://github.com/Llama-Ranger/checkmk-stp-tcn-nxos/actions/workflows/build.yml/badge.svg)](https://github.com/Llama-Ranger/checkmk-stp-tcn-nxos/actions/workflows/build.yml)
 
-A Checkmk extension (MKP) that monitors spanning-tree topology changes **per VLAN** on Cisco Nexus
-switches over SNMPv3. It automatically discovers one service per VLAN, has configurable alert windows,
-and draws graphs. There is no CLI scraping and no per-switch custom check.
+A Checkmk extension (MKP) that monitors spanning-tree topology changes of **every VLAN** on Cisco Nexus
+switches over SNMPv3. One `STP Topology` service per switch lists all VLANs, names the VLANs with a
+recent topology change, and draws one graph per VLAN. Alert windows are configurable. There is no CLI
+scraping and no per-switch custom check.
 
 | | |
 |---|---|
@@ -22,12 +23,16 @@ Background and evidence: [docs/snmp-findings.md](docs/snmp-findings.md) (SNMP-vs
 
 ## 1. What it monitors
 
-One service per VLAN, **`STP Topology VLAN <id>`**, for example:
+One service per switch, **`STP Topology`**, covering all VLANs. For example:
 
 ```
-STP Topology VLAN 200    CRIT   Topology changes: 120, Last change: 2 hours 14 minutes ago (topology change within the last 12 hours 0 minutes)
-STP Topology VLAN 10     OK     Topology changes: 0, no change since spanning tree started
+STP Topology   CRIT   1 of 79 VLANs: VLAN 200 changed 2 hours 14 minutes ago
+STP Topology   OK     79 VLANs, no recent topology change, most recent: VLAN 200 1 day 4 hours ago
 ```
+
+The service details list every VLAN, e.g.
+`VLAN 200: 120 topology changes, last change 2 hours 14 minutes ago - CRIT: topology change within the last 12 hours 0 minutes`.
+The service has **one graph per VLAN** (time since that VLAN's last topology change), plus switch-wide graphs.
 
 Data per VLAN (BRIDGE-MIB, read in the VLAN's SNMPv3 context):
 
@@ -60,7 +65,7 @@ Checkmk (rule "Cisco Nexus STP topology changes (SNMPv3 VLAN contexts)")
         1. walk CISCO-CONTEXT-MAPPING-MIB (default context)  → VLAN list
         2. per numeric VLAN context: GET .17.2.4.0, GET .17.2.3.0   (parallel, isolated per VLAN)
         3. print <<<nxos_stp_tcn>>> section
-  └─ agent_based check "STP Topology VLAN %s" → rulesets → metrics/graphs
+  └─ agent_based check "STP Topology" (all VLANs) → rulesets → one metric/graph per VLAN
 ```
 
 Source tree (`local/lib/python3/cmk_addons/plugins/nxos_stp_tcn/`, installed to `~/local/lib/python3/cmk_addons/plugins/nxos_stp_tcn/`):
@@ -68,10 +73,11 @@ Source tree (`local/lib/python3/cmk_addons/plugins/nxos_stp_tcn/`, installed to 
 ```
 agent_based/cisco_nexus_stp.py      section + check plugin
 rulesets/special_agent.py           rule "Cisco Nexus STP topology changes (SNMPv3 VLAN contexts)"
-rulesets/check_parameters.py        rules "Cisco Nexus STP topology changes" + "... VLAN discovery"
+rulesets/check_parameters.py        rule "Cisco Nexus STP topology changes" (thresholds, VLAN filter)
 server_side_calls/special_agent.py  builds the agent command line
 libexec/agent_nxos_stp_tcn          the special agent (SNMP collector)
-graphing/cisco_nexus_stp.py         metrics, graphs, perfometer
+graphing/cisco_nexus_stp.py         metrics (one per VLAN), graphs, perfometer
+lib/metric_names.py                 per-VLAN metric name (shared)
 lib/vlan_ranges.py                  VLAN list parsing (shared)
 checkman/nxos_stp_tcn               man page
 ```
@@ -80,9 +86,15 @@ checkman/nxos_stp_tcn               man page
 
 Nothing changes on the switches. You need:
 - An SNMPv3 user on the Nexus with read access (the `network-operator` role is sufficient).
-- The user, protocols and passphrases entered **once** in the special-agent rule. Checkmk cannot pass a host's
-  SNMP credential attribute to a special agent. Store the passphrases in **Setup → General → Passwords**
-  and select them from the rule.
+- The user, protocols and passphrases entered **once** in the special-agent rule. Store the passphrases in
+  **Setup → General → Passwords** and select them from the rule.
+
+**Why can't it reuse the SNMP credentials the host already has?** Checkmk gives a special agent only the
+host name, alias, IP addresses and macros; the host's SNMP credentials are not part of that interface. The
+host's SNMP credentials are also stored as plain values, not as a password-store entry that a second rule
+could point at (verified in the Checkmk 2.4.0 and 2.5.0 source). Checkmk's own SNMP fetcher, which does use
+those credentials, cannot query per-VLAN contexts correctly (see section 3). So the special agent needs its
+own copy, entered once.
 
 ### How credentials stay protected
 - The rule references password-store entries. Checkmk passes only `<id>:<store file>` on the command line.
@@ -105,27 +117,32 @@ discovered. If the switch has no VLAN context table at all, the host's "Check_MK
 
 ## 6. Service discovery
 
-- One service per VLAN that returns valid STP data. VLANs without STP data (`noSuchInstance`) are not discovered.
-- New VLANs appear as new services at the next discovery (including Checkmk's periodic
-  "Check_MK Discovery" / automatic discovery rule, if configured). No configuration change is needed.
-- Deleted VLANs vanish at the next discovery. Until then the service shows *item not found*.
-- Optional filter: **Setup → Services → Discovery rules → "Cisco Nexus STP topology VLAN discovery"**:
-  all VLANs (default), only listed VLANs, or all except listed (`10, 20-30, 200`).
+- One `STP Topology` service per switch, discovered when at least one VLAN returns valid STP data.
+- VLANs are evaluated at every check: a VLAN added on the switch appears in the service (and gets its graph)
+  without a new discovery; a deleted VLAN simply drops out of the list.
+- VLANs without STP data (`noSuchInstance`) are listed in the details as not monitored.
+- Optional filter in the service rule (section 7): all VLANs (default), only listed VLANs, or all except
+  listed (`10, 20-30, 200`).
 
 ## 7. Thresholds (GUI)
 
-**Setup → Services → Service monitoring rules → "Cisco Nexus STP topology changes"**, condition: host and
-optionally VLAN ID (service item).
+**Setup → Services → Service monitoring rules → "Cisco Nexus STP topology changes"**, condition: host.
+Every setting applies to each VLAN; the service takes the state of the worst VLAN.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| Critical if the last topology change was within | **12 hours** | |
-| Warning if the last topology change was within | not set (no WARN) | must be longer than the CRIT window |
-| Upper levels on the topology change rate | no levels | changes/hour, e.g. WARN 6, CRIT 30 |
+| Critical if the last topology change of a VLAN was within | **12 hours** | |
+| Warning if the last topology change of a VLAN was within | not set (no WARN) | must be longer than the CRIT window |
+| Upper levels on the topology change rate of a VLAN | no levels | changes/hour, e.g. WARN 6, CRIT 30 |
+| VLANs to monitor | all VLANs with STP data | or only / all except listed VLANs (`10, 20-30, 200`) |
+| State if a VLAN cannot be queried | UNKNOWN | the VLAN is listed; all other VLANs are still evaluated |
 
 Examples:
-- Default: change < 12 h → CRIT, else OK.
-- Override: CRIT = 2 hours, WARN = 12 hours → < 2 h CRIT, 2–12 h WARN, else OK. No code changes.
+- Default: any VLAN changed < 12 h ago → CRIT, else OK.
+- Override: CRIT = 2 hours, WARN = 12 hours → a change < 2 h ago CRIT, 2–12 h WARN, else OK. No code changes.
+
+Checkmk notifies on state changes. While the service is already CRIT because of one VLAN, a change on a
+second VLAN updates the summary but raises no new notification; use periodic notifications if you want one.
 
 A VLAN with **0** topology changes is always OK: without any change NX-OS's timer counts from spanning-tree
 start (e.g. a reboot). A naive "last change < 12 h" check would therefore raise a false CRIT for 12 hours
@@ -135,21 +152,24 @@ after every reboot.
 
 | Metric | Unit | Meaning |
 |---|---|---|
-| `stp_seconds_since_last_change` | time | seconds since the most recent topology change (since STP start if there never was one) |
-| `stp_topology_changes_total` | count | cumulative topology changes of the VLAN's STP instance (resets on reboot) |
-| `stp_topology_changes_rate` | /h | changes per hour over the last check interval; omitted for an interval where the counter decreased (reboot, Counter32 wrap) |
+| `stp_vlan_<id>_seconds_since_last_change` | time | per VLAN: seconds since that VLAN's last topology change (since STP start if there never was one) |
+| `stp_seconds_since_last_change` | time | switch-wide: the most recent topology change on any VLAN |
+| `stp_topology_changes_total` | count | switch-wide: sum of the cumulative topology changes of all VLANs (resets on reboot) |
+| `stp_topology_changes_rate` | /h | switch-wide: sum of the per-VLAN change rates over the last check interval; a VLAN whose counter decreased (reboot, Counter32 wrap) contributes no rate for that interval |
 
-The metric names are the same for every VLAN.
+The per-VLAN metric definitions are generated for all VLAN IDs 1–4094, so each has a title
+("VLAN 200: time since last STP topology change") and time units.
 
 ## 9. Graphs
 
 | Graph | Shows |
 |---|---|
-| Time since last STP topology change | rises steadily, drops to ~0 at each change (readable time units) |
-| STP topology change activity | change rate per hour (area); spikes show instability |
-| STP topology changes (cumulative) | the counter; steps show when changes happened |
+| VLAN `<id>`: time since last STP topology change | one graph per VLAN: rises steadily, drops to ~0 at each change of that VLAN |
+| Time since last STP topology change (any VLAN) | the same for the switch as a whole |
+| STP topology change activity (all VLANs) | change rate per hour (area); spikes show instability |
+| STP topology changes (all VLANs, cumulative) | the counter; steps show when changes happened |
 
-Perfometer: time since last change (0–7 days focus).
+Perfometer: time since the most recent change on any VLAN (0–7 days focus).
 
 ## 10. Installation (Checkmk 2.4 / 2.5)
 
@@ -164,7 +184,7 @@ The package requires Checkmk 2.4.0 or later. Do not install it on 2.3 or older.
    "Configured API integrations, no Checkmk agent"**. Leave SNMP as it is; the SNMP checks keep running.
 5. **Setup → Agents → Other integrations → "Cisco Nexus STP topology changes (SNMPv3 VLAN contexts)"**:
    create a rule with user, protocols and the stored passwords. Condition: the hosts (or a host label).
-6. Run service discovery on the hosts and accept the `STP Topology VLAN …` services. Activate changes.
+6. Run service discovery on the hosts and accept the `STP Topology` service. Activate changes.
 
 ## 11. Validation
 
@@ -184,9 +204,9 @@ show clock
 show spanning-tree vlan 1,30,200 detail | egrep "executing|topology changes"
 ```
 
-Then check the rules: the default gives CRIT only for changes < 12 h. Set CRIT 2 h / WARN 12 h on one VLAN
-and confirm WARN between 2 and 12 h. Graphs appear after a few check cycles; the rate metric needs two
-check intervals.
+Then check the rules: the default gives CRIT only for changes < 12 h. Set CRIT 2 h / WARN 12 h for one switch
+and confirm WARN for a VLAN that changed 2–12 h ago. The per-VLAN graphs appear after a few check cycles; the
+rate metric needs two check intervals.
 
 ## 12. Upgrade notes: Checkmk 2.5
 
@@ -198,16 +218,25 @@ check intervals.
 - `version.usable_until` is not set, so the package stays enabled across upgrades. Re-test before upgrading
   to 2.6.
 
+### Upgrading the package from 1.0.0 to 2.0.0
+
+2.0.0 replaces the `STP Topology VLAN <id>` services with one `STP Topology` service (see CHANGELOG):
+1. Install the new MKP and run service discovery on the hosts: the per-VLAN services vanish, one
+   `STP Topology` service appears. The per-VLAN graph history of 1.0.0 is not carried over.
+2. Re-create threshold rules without a VLAN condition, and move a VLAN filter from the removed discovery
+   rule "Cisco Nexus STP topology VLAN discovery" into "Cisco Nexus STP topology changes".
+3. The special-agent rule and its credentials stay as they are.
+
 ## 13. Troubleshooting
 
 | Symptom | Check |
 |---|---|
-| No `STP Topology` services | Host agent setting (step 4). Does the rule match the host? `cmk -d <host>` shows the section? |
+| No `STP Topology` service | Host agent setting (step 4). Does the rule match the host? `cmk -d <host>` shows the section? |
 | Check_MK service: `Cannot read the VLAN context table: Timeout` | IP/port, SNMPv3 user/protocols/passphrases in the rule, switch ACL for the Checkmk server |
 | `Cannot read password … from the Checkmk password store` | The selected password entry exists and the rule points at it |
-| One VLAN UNKNOWN "did not answer (timeout)" | VLAN deleted since discovery → run discovery; or transient SNMP loss |
-| One VLAN UNKNOWN "no spanning-tree data" | STP no longer runs on that VLAN → rediscover |
-| All services missing on a 10.4(5) FX3 switch | Expected: NX-OS 10.4(5) FX3 serves no BRIDGE-MIB STP objects |
+| `STP Topology` UNKNOWN "1 VLAN without data: VLAN 30" | That VLAN's context did not answer (just deleted, or transient SNMP loss); the details say why. The state is configurable (section 7) |
+| A VLAN listed as "No spanning-tree data (not monitored)" | STP does not run on that VLAN; nothing to do |
+| No service on a 10.4(5) FX3 switch | Expected: NX-OS 10.4(5) FX3 serves no BRIDGE-MIB STP objects |
 
 Manual SNMP cross-check (run yourself; prompts keep passphrases out of history and command lines as far as Net-SNMP allows):
 
@@ -227,7 +256,10 @@ unset SA SX
 - TimeTicks wrap after ~497 days without a change. The check compensates using its stored previous value; if
   monitoring starts or restarts right after a wrap, one false "recent change" can appear.
 - A reboot produces a real burst of topology changes during convergence. This is reported as such (CRIT for
-  the window). The details show "Switch uptime at last change" to recognise it.
+  the window). The details show the switch uptime at each VLAN's last change to recognise it.
+- One service means one state: a second VLAN changing while the service is already CRIT raises no new
+  notification (see section 7).
+- One metric per VLAN: a core with ~80 VLANs records ~80 metrics in one service (plus 3 switch-wide).
 - Passphrases containing `"` or `\` are escaped for Net-SNMP's config parser but were not tested against a switch.
 - Each check cycle runs about 2 × (number of VLANs) SNMP GETs per switch (4 in parallel by default).
 - The Checkmk 2.4 password-store access uses the internal `cmk.utils.password_store.lookup` (no public API in 2.4).
@@ -235,8 +267,8 @@ unset SA SX
 ## 15. Migrating from a CLI-scraping check
 
 A common predecessor is a script that parses saved `show spanning-tree detail` output, run as one custom
-check per switch. The new services (`STP Topology VLAN …`) don't collide with such checks, so both can run
-side by side.
+check per switch. The new `STP Topology` service doesn't collide with such checks, so both can run side by
+side.
 
 1. Install the MKP (section 10). Leave the old checks untouched.
 2. Enable the rule for one switch; discover; compare with the switch CLI (section 11).
@@ -251,8 +283,8 @@ side by side.
 ## 16. Rollback
 
 1. Disable or delete the "Cisco Nexus STP topology changes (SNMPv3 VLAN contexts)" rule. Optionally
-   `mkp disable nxos_stp_tcn 1.0.0` (or `mkp remove nxos_stp_tcn 1.0.0`).
-2. Run service discovery on the hosts and remove the vanished `STP Topology VLAN …` services.
+   `mkp disable nxos_stp_tcn <version>` (or `mkp remove nxos_stp_tcn <version>`).
+2. Run service discovery on the hosts and remove the vanished `STP Topology` service.
 3. Set the hosts' agent setting back to its previous value (typically "No API integrations, no Checkmk agent").
 4. Re-enable the previous checks (if they were only disabled), then activate changes.
 

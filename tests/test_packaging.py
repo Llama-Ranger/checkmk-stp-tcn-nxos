@@ -111,7 +111,7 @@ def test_choice_element_names_are_valid_python_identifiers() -> None:
 
 def test_build_produces_an_installable_mkp(tmp_path, manifest: dict) -> None:
     target = build_mkp.build_mkp(REPO_ROOT, manifest, tmp_path)
-    assert target.name == "nxos_stp_tcn-1.0.0.mkp"
+    assert target.name == f"nxos_stp_tcn-{manifest['version']}.mkp"
 
     with tarfile.open(target, "r:gz") as tar:
         assert tar.getnames() == ["info", "info.json", "cmk_addons_plugins.tar"]

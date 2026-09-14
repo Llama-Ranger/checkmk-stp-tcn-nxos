@@ -1,36 +1,37 @@
-title: Cisco Nexus: Spanning-Tree Topology Changes per VLAN
+title: Cisco Nexus: Spanning-Tree Topology Changes (all VLANs)
 agents: snmp
 catalog: hw/network/cisco
 license: GPLv2
 distribution: nxos_stp_tcn
 description:
- Monitors spanning-tree topology changes of each VLAN on Cisco Nexus (NX-OS)
- switches. Data is collected by the special agent "Cisco Nexus STP topology
- changes (SNMPv3 VLAN contexts)", which reads the VLAN list from
+ Monitors spanning-tree topology changes of all VLANs of a Cisco Nexus (NX-OS)
+ switch in one service. Data is collected by the special agent "Cisco Nexus STP
+ topology changes (SNMPv3 VLAN contexts)", which reads the VLAN list from
  CISCO-CONTEXT-MAPPING-MIB and queries the BRIDGE-MIB objects
  dot1dStpTopChanges and dot1dStpTimeSinceTopologyChange in each VLAN's numeric
  SNMPv3 context.
 
- The service is {CRIT} if the most recent topology change happened within the
- configured critical window (default: 12 hours) and optionally {WARN} within a
- longer warning window. Otherwise it is {OK}. A VLAN that never had a topology
- change is always {OK}, because the NX-OS timer then counts from the start of
- spanning tree (e.g. a reboot) rather than from a change.
+ The service lists every VLAN in its details and records one metric - and so
+ one graph - per VLAN: the time since that VLAN's last topology change.
 
- Optionally, upper levels can be set on the topology change rate (changes per
- hour). A decreasing counter (reboot, Counter32 wrap) yields no rate for that
- check interval.
+ The service is {CRIT} if any VLAN had a topology change within the configured
+ critical window (default: 12 hours) and optionally {WARN} within a longer
+ warning window; the summary names the affected VLANs, most recent first. A
+ VLAN that never had a topology change is always {OK}, because the NX-OS timer
+ then counts from the start of spanning tree (e.g. a reboot) rather than from
+ a change.
 
- If the SNMP context of a VLAN does not answer, only that service becomes
- {UNKNOWN}.
+ Optionally, upper levels can be set on the topology change rate of each VLAN
+ (changes per hour). A decreasing counter (reboot, Counter32 wrap) yields no
+ rate for that check interval.
+
+ VLANs whose SNMP context does not answer are listed and set the service to a
+ configurable state (default {UNKNOWN}); all other VLANs are still evaluated.
+ The same rule can restrict monitoring to, or exclude, specific VLANs.
 
  Verified on Nexus 9000 C93240YC-FX2 with NX-OS 10.2(5). NX-OS 10.4(5) on
  C93180YC-FX3 does not provide these BRIDGE-MIB objects via SNMP.
 
-item:
- The VLAN ID.
-
 discovery:
- One service is created for each VLAN that has spanning-tree data. The ruleset
- "Cisco Nexus STP topology VLAN discovery" can restrict discovery to, or exclude,
- specific VLANs.
+ One service is created per switch if at least one VLAN has spanning-tree data.
+ VLANs added later appear in the existing service without a new discovery.

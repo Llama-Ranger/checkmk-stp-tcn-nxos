@@ -8,38 +8,34 @@ from typing import Any
 
 from cmk.agent_based.v2 import Metric, Result, Service, State
 from cmk_addons.plugins.nxos_stp_tcn.agent_based import cisco_nexus_stp as stp
+from cmk_addons.plugins.nxos_stp_tcn.lib.metric_names import vlan_age_metric
 
 DEFAULTS = stp.check_plugin_nxos_stp_tcn.check_default_parameters
 HOUR = 3600
-
-STRING_TABLE = [
-    ["sysuptime", "2590160436"],
-    ["vlan", "1", "ok", "6", "2586192400"],  # ~299 days
-    ["vlan", "10", "ok", "0", "20000"],  # no change, STP started 200 s ago
-    ["vlan", "200", "ok", "37", "2586624300"],
-    ["vlan", "300", "ok", "120", "1000000"],  # 10 000 s = 2 h 46 min
-    ["vlan", "400", "ok", "15", str(20 * HOUR * 100)],  # 20 h
-    ["vlan", "30", "timeout", "", ""],
-    ["vlan", "99", "nosuch", "", ""],
-]
-SECTION = stp.parse_nxos_stp_tcn(STRING_TABLE)
+OLD = 2586624300  # ~299 days, in TimeTicks
 
 
-def run_check(
-    item: str,
+def vlan(vid: int, changes: int, ticks: int) -> list[str]:
+    return ["vlan", str(vid), "ok", str(changes), str(ticks)]
+
+
+def section(*rows: list[str]) -> stp.Section:
+    parsed = stp.parse_nxos_stp_tcn([["sysuptime", "2590160436"], *rows])
+    assert parsed is not None
+    return parsed
+
+
+QUIET = section(vlan(1, 6, 2586192400), vlan(10, 0, 20000), vlan(200, 37, OLD))
+
+
+def run(
+    sect: stp.Section,
     params: Mapping[str, Any] | None = None,
-    section: stp.Section | None = None,
     store: MutableMapping[str, Any] | None = None,
     now: float = 1_000_000.0,
 ) -> list[Result | Metric]:
     return list(
-        stp._check(
-            item,
-            {**DEFAULTS, **(params or {})},
-            section or SECTION,
-            {} if store is None else store,
-            now,
-        )
+        stp._check({**DEFAULTS, **(params or {})}, sect, {} if store is None else store, now)
     )
 
 
@@ -51,6 +47,10 @@ def summary(results: list[Result | Metric]) -> str:
     return ", ".join(r.summary for r in results if isinstance(r, Result) and r.summary)
 
 
+def details(results: list[Result | Metric]) -> list[str]:
+    return [r.details for r in results if isinstance(r, Result)]
+
+
 def metrics(results: list[Result | Metric]) -> dict[str, float]:
     return {m.name: m.value for m in results if isinstance(m, Metric)}
 
@@ -59,14 +59,14 @@ def metrics(results: list[Result | Metric]) -> dict[str, float]:
 
 
 def test_parse() -> None:
-    assert SECTION is not None
-    assert SECTION.sysuptime == 25901604.36
-    assert SECTION.vlans["200"] == stp.VlanStp("ok", 37, 25866243.0)
-    assert SECTION.vlans["30"].status == "timeout"
+    parsed = section(vlan(200, 37, OLD), ["vlan", "30", "timeout", "", ""])
+    assert parsed.sysuptime == 25901604.36
+    assert parsed.vlans["200"] == stp.VlanStp("ok", 37, 25866243.0)
+    assert parsed.vlans["30"].status == "timeout"
 
 
 def test_parse_malformed_rows_do_not_crash() -> None:
-    section = stp.parse_nxos_stp_tcn(
+    parsed = stp.parse_nxos_stp_tcn(
         [
             [],
             ["garbage"],
@@ -77,10 +77,10 @@ def test_parse_malformed_rows_do_not_crash() -> None:
             ["sysuptime", "not-a-number"],
         ]
     )
-    assert section is not None
-    assert set(section.vlans) == {"5", "6", "7"}
-    assert {v.status for v in section.vlans.values()} == {"invalid"}
-    assert section.sysuptime is None
+    assert parsed is not None
+    assert set(parsed.vlans) == {"5", "6", "7"}
+    assert {v.status for v in parsed.vlans.values()} == {"invalid"}
+    assert parsed.sysuptime is None
 
 
 def test_parse_empty() -> None:
@@ -90,112 +90,179 @@ def test_parse_empty() -> None:
 # --- discovery -------------------------------------------------------------------------------
 
 
-def discovered(params: Mapping[str, Any]) -> list[str]:
-    return [s.item for s in stp.discover_nxos_stp_tcn(params, SECTION) if isinstance(s, Service)]
+def test_one_service_per_switch() -> None:
+    assert list(stp.discover_nxos_stp_tcn(QUIET)) == [Service()]
+    assert stp.check_plugin_nxos_stp_tcn.service_name == "STP Topology"
 
 
-def test_discovery_multiple_vlans_only_with_valid_data() -> None:
-    assert discovered({"vlans": ("all", None)}) == ["1", "10", "200", "300", "400"]
+def test_no_service_without_spanning_tree_data() -> None:
+    no_data = section(["vlan", "30", "timeout", "", ""], ["vlan", "99", "nosuch", "", ""])
+    assert list(stp.discover_nxos_stp_tcn(no_data)) == []
 
 
-def test_discovery_include_and_exclude() -> None:
-    assert discovered({"vlans": ("include", "1, 200-300")}) == ["1", "200", "300"]
-    assert discovered({"vlans": ("exclude", "10,400")}) == ["1", "200", "300"]
+# --- all VLANs in one service ----------------------------------------------------------------
 
 
-def test_removed_vlan_is_no_longer_discovered_and_yields_nothing() -> None:
-    section = stp.parse_nxos_stp_tcn([r for r in STRING_TABLE if r[1:2] != ["200"]])
-    assert section is not None
-    assert "200" not in [s.item for s in stp.discover_nxos_stp_tcn({}, section)]
-    assert run_check("200", section=section) == []  # Checkmk: "item not found" -> vanished
-
-
-# --- thresholds ------------------------------------------------------------------------------
-
-
-def test_old_change_is_ok() -> None:
-    results = run_check("200")
+def test_quiet_switch_is_ok_and_names_the_most_recent_change() -> None:
+    results = run(QUIET)
     assert worst(results) is State.OK
-    assert summary(results).startswith("Topology changes: 37, Last change: 299 days")
-    assert metrics(results)["stp_topology_changes_total"] == 37
-    assert metrics(results)["stp_seconds_since_last_change"] == 25866243.0
+    assert summary(results).startswith("3 VLANs, no recent topology change, most recent: VLAN 1 ")
 
 
-def test_recent_change_is_crit_by_default() -> None:
-    results = run_check("300")
+def test_one_metric_and_graph_per_vlan() -> None:
+    values = metrics(run(QUIET))
+    assert values[vlan_age_metric(1)] == 25861924.0
+    assert values[vlan_age_metric(10)] == 200.0
+    assert values[vlan_age_metric(200)] == 25866243.0
+    assert values["stp_topology_changes_total"] == 43
+    assert values["stp_seconds_since_last_change"] == 25861924.0  # most recent change, any VLAN
+
+
+def test_every_vlan_is_listed_in_the_details() -> None:
+    lines = details(run(QUIET))
+    assert any(
+        line.startswith("VLAN 1: 6 topology changes, last change 299 days") for line in lines
+    )
+    assert any(
+        line.startswith("VLAN 10: no topology change since spanning tree started") for line in lines
+    )
+    assert any(line.startswith("VLAN 200: 37 topology changes") for line in lines)
+
+
+def test_singular_wording_for_one_change() -> None:
+    lines = details(run(section(vlan(30, 1, OLD))))
+    assert any(line.startswith("VLAN 30: 1 topology change, last change") for line in lines)
+
+
+def test_recent_change_is_crit_and_named_in_the_summary() -> None:
+    results = run(section(vlan(1, 6, 2586192400), vlan(300, 120, 1_000_000)))  # 2 h 46 min
     assert worst(results) is State.CRIT
-    assert "within the last 12 hours" in summary(results)
+    assert summary(results).startswith("1 of 2 VLANs: VLAN 300 changed 2 hours 46 minutes ago")
+    assert any(
+        "VLAN 300:" in line and "CRIT: topology change within the last 12 hours" in line
+        for line in details(results)
+    )
+    assert any("switch uptime then" in line for line in details(results))
 
 
 def test_warn_disabled_by_default() -> None:
-    assert worst(run_check("400")) is State.OK  # 20 h ago, only CRIT < 12 h configured
+    assert worst(run(section(vlan(400, 15, 20 * HOUR * 100)))) is State.OK  # 20 h ago
 
 
 def test_warn_window() -> None:
-    assert worst(run_check("400", {"warn_within": 24.0 * HOUR})) is State.WARN
+    assert (
+        worst(run(section(vlan(400, 15, 20 * HOUR * 100)), {"warn_within": 24.0 * HOUR}))
+        is State.WARN
+    )
 
 
 def test_override_crit_2h_warn_12h() -> None:
     params = {"crit_within": 2.0 * HOUR, "warn_within": 12.0 * HOUR}
-    assert worst(run_check("300", params)) is State.WARN  # 2 h 46 min
-    assert worst(run_check("400", params)) is State.OK  # 20 h
-    one_hour = stp.parse_nxos_stp_tcn([["vlan", "5", "ok", "3", str(HOUR * 100)]])
-    assert worst(run_check("5", params, one_hour)) is State.CRIT
+    assert worst(run(section(vlan(300, 120, 1_000_000)), params)) is State.WARN  # 2 h 46 min
+    assert worst(run(section(vlan(400, 15, 20 * HOUR * 100)), params)) is State.OK  # 20 h
+    assert worst(run(section(vlan(5, 3, HOUR * 100)), params)) is State.CRIT  # 1 h
 
 
 def test_zero_changes_is_never_crit() -> None:
-    results = run_check("10")  # timer 200 s: would be CRIT in the legacy script
+    results = run(section(vlan(10, 0, 20000)))  # timer 200 s: would be CRIT in the legacy script
     assert worst(results) is State.OK
-    assert "no change since spanning tree started" in summary(results)
+    assert summary(results) == "1 VLAN, no recent topology change since spanning tree started"
 
 
-# --- errors ----------------------------------------------------------------------------------
+def test_worst_vlan_wins_and_the_summary_is_truncated() -> None:
+    rows = [vlan(vid, 5, (vid + 1) * 100 * 60) for vid in range(1, 8)]  # 7 VLANs, 2-8 min ago
+    results = run(section(*rows, vlan(400, 15, 20 * HOUR * 100)), {"warn_within": 24.0 * HOUR})
+    assert worst(results) is State.CRIT
+    text = summary(results)
+    assert text.startswith("8 of 8 VLANs: VLAN 1 changed 2 minutes 0 seconds ago, VLAN 2 changed")
+    assert text.endswith(", +3 more")
 
 
-def test_unanswered_context_is_unknown_only_for_that_vlan() -> None:
-    assert worst(run_check("30")) is State.UNKNOWN
-    assert worst(run_check("99")) is State.UNKNOWN
-    assert worst(run_check("200")) is State.OK
+# --- errors and filtering --------------------------------------------------------------------
 
 
-def test_invalid_value_is_unknown() -> None:
-    section = stp.parse_nxos_stp_tcn([["vlan", "5", "ok", "x", "100"]])
-    assert worst(run_check("5", section=section)) is State.UNKNOWN
+def test_unanswered_vlan_is_unknown_but_the_others_are_evaluated() -> None:
+    results = run(section(vlan(200, 37, OLD), ["vlan", "30", "timeout", "", ""]))
+    assert worst(results) is State.UNKNOWN
+    assert "1 VLAN without data: VLAN 30" in summary(results)
+    assert "VLAN 30: SNMP context did not answer (timeout)" in details(results)
+    assert vlan_age_metric(200) in metrics(results)
+
+
+def test_unanswered_vlan_does_not_hide_a_crit() -> None:
+    results = run(section(vlan(300, 120, 1_000_000), ["vlan", "30", "timeout", "", ""]))
+    assert worst(results) is State.CRIT
+
+
+def test_state_for_unanswered_vlans_is_configurable() -> None:
+    sect = section(vlan(200, 37, OLD), ["vlan", "30", "error", "", ""])
+    assert worst(run(sect, {"state_vlan_error": 0})) is State.OK
+    assert worst(run(sect, {"state_vlan_error": 1})) is State.WARN
+
+
+def test_invalid_value_counts_as_without_data() -> None:
+    results = run(section(vlan(200, 37, OLD), ["vlan", "5", "ok", "x", "100"]))
+    assert worst(results) is State.UNKNOWN
+    assert "VLAN 5: malformed SNMP data" in details(results)
+
+
+def test_vlans_without_spanning_tree_are_listed_but_not_monitored() -> None:
+    results = run(section(vlan(200, 37, OLD), ["vlan", "99", "nosuch", "", ""]))
+    assert worst(results) is State.OK
+    assert "No spanning-tree data (not monitored): VLAN 99" in details(results)
+
+
+def test_vlan_filter() -> None:
+    included = metrics(run(QUIET, {"vlans": ("include", "200")}))
+    assert vlan_age_metric(200) in included and vlan_age_metric(1) not in included
+    excluded = metrics(run(QUIET, {"vlans": ("exclude", "1-10")}))
+    assert vlan_age_metric(200) in excluded and vlan_age_metric(1) not in excluded
+
+
+def test_filter_that_leaves_nothing_is_unknown() -> None:
+    results = run(QUIET, {"vlans": ("include", "3000")})
+    assert worst(results) is State.UNKNOWN
+    assert summary(results) == "No VLAN with spanning-tree data to monitor"
+
+
+def test_new_and_removed_vlans_need_no_rediscovery() -> None:
+    store: dict[str, Any] = {}
+    run(QUIET, store=store)
+    grown = run(section(vlan(1, 6, 2586192400), vlan(200, 37, OLD), vlan(555, 1, OLD)), store=store)
+    assert vlan_age_metric(555) in metrics(grown)
+    shrunk = run(section(vlan(1, 6, 2586192400)), store=store)
+    assert vlan_age_metric(200) not in metrics(shrunk)
+    assert worst(shrunk) is State.OK
 
 
 # --- rate ------------------------------------------------------------------------------------
 
 
-def section_with(changes: int, ticks: int = 360_000_000) -> stp.Section:
-    section = stp.parse_nxos_stp_tcn([["vlan", "7", "ok", str(changes), str(ticks)]])
-    assert section is not None
-    return section
-
-
 def test_rate_needs_two_samples_then_reports_per_hour() -> None:
     store: dict[str, Any] = {}
-    first = run_check("7", section=section_with(100), store=store, now=0.0)
+    first = run(section(vlan(7, 100, 360_000_000)), store=store, now=0.0)
     assert "stp_topology_changes_rate" not in metrics(first)
-    second = run_check("7", section=section_with(103), store=store, now=HOUR)
+    second = run(section(vlan(7, 103, 360_000_000), vlan(8, 0, OLD)), store=store, now=HOUR)
     assert metrics(second)["stp_topology_changes_rate"] == 3.0
+    assert any("VLAN 7:" in line and "3.00 changes/h" in line for line in details(second))
 
 
 def test_counter_reset_gives_no_rate() -> None:
     store: dict[str, Any] = {}
-    run_check("7", section=section_with(120), store=store, now=0.0)
-    after_reboot = run_check("7", section=section_with(2, 30_000), store=store, now=600.0)
+    run(section(vlan(7, 120, 360_000_000)), store=store, now=0.0)
+    after_reboot = run(section(vlan(7, 2, 30_000)), store=store, now=600.0)
     assert "stp_topology_changes_rate" not in metrics(after_reboot)
-    next_interval = run_check("7", section=section_with(3, 36_000), store=store, now=HOUR + 600)
+    next_interval = run(section(vlan(7, 3, 36_000)), store=store, now=HOUR + 600)
     assert metrics(next_interval)["stp_topology_changes_rate"] == 1.0
 
 
-def test_rate_levels() -> None:
+def test_rate_levels_per_vlan() -> None:
     store: dict[str, Any] = {}
     params = {"rate_levels": ("fixed", (1.0, 2.0))}
-    run_check("7", params, section_with(100), store, now=0.0)
-    results = run_check("7", params, section_with(103), store, now=HOUR)
+    run(section(vlan(7, 100, 360_000_000)), params, store, now=0.0)
+    results = run(section(vlan(7, 103, 360_000_000)), params, store, now=HOUR)
     assert worst(results) is State.CRIT
-    assert "Change rate: 3.00/h" in summary(results)
+    assert summary(results) == "1 of 1 VLAN: VLAN 7 at 3.00 changes/h"
 
 
 # --- TimeTicks wrap --------------------------------------------------------------------------
@@ -203,22 +270,16 @@ def test_rate_levels() -> None:
 
 def test_timeticks_wrap_does_not_look_like_a_new_change() -> None:
     store: dict[str, Any] = {}
-    run_check("7", section=section_with(37, 2**32 - 6000), store=store, now=0.0)
-    wrapped = run_check("7", section=section_with(37, 3000), store=store, now=90.0)
+    run(section(vlan(7, 37, 2**32 - 6000)), store=store, now=0.0)
+    wrapped = run(section(vlan(7, 37, 3000)), store=store, now=90.0)
     assert worst(wrapped) is State.OK
-    assert metrics(wrapped)["stp_seconds_since_last_change"] == 2**32 / 100 + 30
-    later = run_check("7", section=section_with(37, 9000), store=store, now=150.0)
-    assert metrics(later)["stp_seconds_since_last_change"] == 2**32 / 100 + 90
+    assert metrics(wrapped)[vlan_age_metric(7)] == 2**32 / 100 + 30
+    later = run(section(vlan(7, 37, 9000)), store=store, now=150.0)
+    assert metrics(later)[vlan_age_metric(7)] == 2**32 / 100 + 90
 
 
 def test_real_change_after_long_quiet_period_is_crit() -> None:
     store: dict[str, Any] = {}
-    run_check("7", section=section_with(37, 2**32 - 6000), store=store, now=0.0)
-    changed = run_check("7", section=section_with(38, 3000), store=store, now=90.0)
+    run(section(vlan(7, 37, 2**32 - 6000)), store=store, now=0.0)
+    changed = run(section(vlan(7, 38, 3000)), store=store, now=90.0)
     assert worst(changed) is State.CRIT
-
-
-def test_details_contain_context_and_uptime_at_change() -> None:
-    details = [r.details for r in run_check("300") if isinstance(r, Result)]
-    assert "SNMP context: 300" in details
-    assert any(d.startswith("Switch uptime at last change:") for d in details)

@@ -6,6 +6,45 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-14
+
+### Changed (breaking)
+
+- One `STP Topology` service per switch replaces the `STP Topology VLAN <id>`
+  services. The summary names the VLANs with a recent topology change (most
+  recent first), the details list every VLAN, and the service takes the state
+  of the worst VLAN.
+- One graph per VLAN: every VLAN has its own metric,
+  `stp_vlan_<id>_seconds_since_last_change`. The metrics are declared for all
+  VLAN IDs 1-4094, so every graph has a title and time units.
+- The switch-wide metrics now cover all VLANs: `stp_topology_changes_total`
+  (sum), `stp_topology_changes_rate` (sum of the per-VLAN rates) and
+  `stp_seconds_since_last_change` (most recent change on any VLAN).
+- The rule "Cisco Nexus STP topology changes" applies per host (there is no
+  VLAN item any more) and now also holds the VLAN include/exclude filter.
+  Rate levels are still evaluated per VLAN.
+
+### Added
+
+- "State if a VLAN cannot be queried" (default UNKNOWN). The VLAN is listed and
+  all other VLANs are still evaluated.
+- VLANs added on the switch appear in the service without a new service
+  discovery.
+
+### Removed
+
+- The discovery rule "Cisco Nexus STP topology VLAN discovery". Its VLAN filter
+  moved into "Cisco Nexus STP topology changes".
+
+### Upgrading from 1.0.0
+
+- After installing, run service discovery on the hosts: the
+  `STP Topology VLAN <id>` services vanish and one `STP Topology` service
+  appears. Graph history of the per-VLAN services is not carried over.
+- Re-create threshold rules without a VLAN condition, and move a VLAN filter
+  from the old discovery rule into "Cisco Nexus STP topology changes".
+- The special-agent rule and its credentials stay as they are.
+
 ## [1.0.0] - 2026-09-14
 
 First public release.
@@ -36,5 +75,6 @@ First public release.
   `scripts/build_mkp.py` and CI that builds the `.mkp` and attaches it to tagged
   releases.
 
-[Unreleased]: https://github.com/Llama-Ranger/checkmk-stp-tcn-nxos/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/Llama-Ranger/checkmk-stp-tcn-nxos/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/Llama-Ranger/checkmk-stp-tcn-nxos/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/Llama-Ranger/checkmk-stp-tcn-nxos/releases/tag/v1.0.0
