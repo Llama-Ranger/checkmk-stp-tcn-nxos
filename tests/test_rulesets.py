@@ -20,6 +20,7 @@ def test_forms_build() -> None:
         "state_vlan_error",
     }
     assert "privacy" in sa._form().elements
+    assert not sa._form().elements["cache_age"].required  # unset: query on every check
 
 
 def test_rule_names_match_plugins() -> None:

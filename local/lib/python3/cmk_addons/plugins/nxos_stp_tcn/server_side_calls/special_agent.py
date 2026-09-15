@@ -25,6 +25,7 @@ class Params:
     timeout: int = 2
     retries: int = 1
     workers: int = 4
+    cache_age: int = 0  # 0: no cache, query the switch on every check
 
 
 def parse_params(raw: Mapping[str, object]) -> Params:
@@ -43,6 +44,8 @@ def parse_params(raw: Mapping[str, object]) -> Params:
         timeout=int(raw.get("timeout", 2)),  # type: ignore[call-overload]
         retries=int(raw.get("retries", 1)),  # type: ignore[call-overload]
         workers=int(raw.get("workers", 4)),  # type: ignore[call-overload]
+        # the form stores a TimeSpan in seconds
+        cache_age=int(raw.get("cache_age", 0)),  # type: ignore[call-overload]
     )
 
 
@@ -57,6 +60,8 @@ def generate_commands(params: Params, host_config: HostConfig) -> Iterable[Speci
         "--retries", str(params.retries),
         "--workers", str(params.workers),
     ]  # fmt: skip
+    if params.cache_age > 0:
+        args += ["--cache-age", str(params.cache_age)]
     if params.priv_protocol and params.priv_password is not None:
         args += [
             "--security-level", "authPriv",

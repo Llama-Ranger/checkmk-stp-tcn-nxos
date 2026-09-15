@@ -63,6 +63,11 @@ class VlanStp:
 class Section:
     vlans: Mapping[str, VlanStp]
     sysuptime: float | None = None  # seconds
+    # When the agent last talked to the switch. With a cache configured, several checks in a
+    # row see the same data carrying the same timestamp, which is what keeps the change rate
+    # from being computed over a minute that contained no new measurement. An older agent does
+    # not write the line, and then the check falls back to the current time.
+    collected: float | None = None
 
 
 def _to_int(text: str) -> int | None:
@@ -75,8 +80,12 @@ def _to_int(text: str) -> int | None:
 def parse_nxos_stp_tcn(string_table: StringTable) -> Section | None:
     vlans: dict[str, VlanStp] = {}
     sysuptime: float | None = None
+    collected: float | None = None
     for row in string_table:
-        if len(row) >= 2 and row[0] == "sysuptime":
+        if len(row) >= 2 and row[0] == "collected":
+            if (epoch := _to_int(row[1])) is not None and epoch > 0:
+                collected = float(epoch)
+        elif len(row) >= 2 and row[0] == "sysuptime":
             if (ticks := _to_int(row[1])) is not None and ticks >= 0:
                 sysuptime = ticks / 100
         elif len(row) >= 3 and row[0] == "vlan" and row[1].isdigit():
@@ -92,7 +101,7 @@ def parse_nxos_stp_tcn(string_table: StringTable) -> Section | None:
             )
     if not vlans:
         return None
-    return Section(vlans=vlans, sysuptime=sysuptime)
+    return Section(vlans=vlans, sysuptime=sysuptime, collected=collected)
 
 
 agent_section_nxos_stp_tcn = AgentSection(
@@ -307,7 +316,10 @@ def _check(
 
 
 def check_nxos_stp_tcn(params: Mapping[str, Any], section: Section) -> CheckResult:
-    yield from _check(params, section, get_value_store(), time.time())
+    # The rate is measured between two collections, not between two checks: with a cache
+    # configured the same counter is served for a while, and using the wall clock there would
+    # report a change that happened over an hour as if it had happened in one minute.
+    yield from _check(params, section, get_value_store(), section.collected or time.time())
 
 
 check_plugin_nxos_stp_tcn = CheckPlugin(

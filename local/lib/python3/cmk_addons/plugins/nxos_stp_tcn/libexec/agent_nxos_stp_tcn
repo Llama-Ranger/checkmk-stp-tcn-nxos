@@ -24,15 +24,16 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
-SECTION_HEADER = "<<<nxos_stp_tcn:sep(59)>>>"
+SECTION_NAME = "nxos_stp_tcn"
 
 OID_CONTEXT_VLAN = ".1.3.6.1.4.1.9.9.468.1.5.1.2"  # CISCO-CONTEXT-MAPPING-MIB: context -> VLAN
 OID_SYS_UPTIME = ".1.3.6.1.2.1.1.3.0"
@@ -257,7 +258,14 @@ def query_vlan(vlan: int, cfg: QueryConfig, env: Mapping[str, str], runner: Runn
     return f"vlan;{vlan};ok;{changes.value};{since.value}"
 
 
-def collect(cfg: QueryConfig, env: Mapping[str, str], runner: Runner = run_command) -> list[str]:
+def collect(
+    cfg: QueryConfig,
+    env: Mapping[str, str],
+    runner: Runner = run_command,
+    now: float | None = None,
+) -> list[str]:
+    """The section body: when it was collected, the switch uptime, one line per VLAN."""
+    now = time.time() if now is None else now
     walk = runner(snmp_command("snmpwalk", cfg, OID_CONTEXT_VLAN), env)
     if walk.returncode != 0:
         raise CollectorError(f"Cannot read the VLAN context table: {_first_line(walk.stderr)}")
@@ -268,10 +276,88 @@ def collect(cfg: QueryConfig, env: Mapping[str, str], runner: Runner = run_comma
         )
 
     uptime = parse_get(runner(snmp_command("snmpget", cfg, OID_SYS_UPTIME), env))
-    lines = [SECTION_HEADER, f"sysuptime;{uptime.value if uptime.status == 'ok' else ''}"]
+    lines = [
+        f"collected;{int(now)}",
+        f"sysuptime;{uptime.value if uptime.status == 'ok' else ''}",
+    ]
     with ThreadPoolExecutor(max_workers=max(1, cfg.workers)) as pool:
         lines.extend(pool.map(lambda vlan: query_vlan(vlan, cfg, env, runner), vlans))
     return lines
+
+
+# --------------------------------------------------------------------------------------------
+# Cache
+#
+# One switch with 79 VLANs costs ~160 SNMP requests and half a minute. The Checkmk service
+# that runs this agent also fetches every other data source of the host, so slowing that
+# service down would slow the host's SNMP checks down with it. Instead the agent keeps its own
+# answer: it re-serves the stored lines until they reach the configured age, and only then
+# talks to the switch again. Nothing else about the host is affected.
+#
+# The file holds the section body of one host, no credentials.
+# --------------------------------------------------------------------------------------------
+
+
+def section_header(collected_at: int | None = None, cache_age: int = 0) -> str:
+    """The section line, telling Checkmk how old the data is when it is cached.
+
+    ``cached(<collection time>,<validity>)`` is what stops Checkmk from treating the repeated
+    lines as fresh measurements, and what keeps the service from going stale between two real
+    collections.
+    """
+    options = ["sep(59)"]
+    if cache_age > 0 and collected_at is not None:
+        options.append(f"cached({collected_at},{cache_age})")
+    return f"<<<{SECTION_NAME}:{':'.join(options)}>>>"
+
+
+def cache_file(host: str) -> Path:
+    directory = (
+        Path(root, "tmp", "check_mk", "cache")
+        if (root := os.environ.get("OMD_ROOT"))
+        else Path(tempfile.gettempdir())
+    )
+    return directory / f"{SECTION_NAME}.{re.sub(r'[^A-Za-z0-9_.-]', '_', host)}"
+
+
+def collected_at(lines: Sequence[str]) -> int | None:
+    for line in lines:
+        if line.startswith("collected;"):
+            try:
+                return int(line.split(";", 1)[1])
+            except ValueError:
+                return None
+    return None
+
+
+def read_cache(path: Path, max_age: int, now: float) -> list[str] | None:
+    """The stored body if it is still young enough, None if it is missing, old or unreadable."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    written = collected_at(lines)
+    if written is None:
+        return None
+    # A file from the future - the clock was set back - is discarded rather than trusted.
+    return lines if 0 <= now - written < max_age else None
+
+
+def write_cache(path: Path, lines: Sequence[str]) -> None:
+    """Replace the cache file atomically, so a parallel run never reads half of it."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=f"{path.name}.")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write("\n".join(lines) + "\n")
+            os.chmod(temporary, 0o600)
+            os.replace(temporary, path)
+        except OSError:
+            Path(temporary).unlink(missing_ok=True)
+            raise
+    except OSError:
+        pass  # a cache that cannot be written is not a reason to fail the run
 
 
 # --------------------------------------------------------------------------------------------
@@ -294,6 +380,13 @@ def parse_arguments(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--timeout", type=int, default=2, help="Seconds per SNMP request")
     parser.add_argument("--retries", type=int, default=1)
     parser.add_argument("--workers", type=int, default=4, help="VLAN contexts queried in parallel")
+    parser.add_argument(
+        "--cache-age",
+        type=int,
+        default=0,
+        metavar="SECONDS",
+        help="Re-serve the last answer for this long instead of querying the switch (0: never)",
+    )
     parser.add_argument("--debug", action="store_true", help="Show Python tracebacks")
     return parser.parse_args(argv)
 
@@ -327,6 +420,12 @@ def main(argv: Sequence[str] | None = None, runner: Runner = run_command) -> int
         retries=args.retries,
         workers=args.workers,
     )
+    cache = cache_file(cfg.host) if args.cache_age > 0 else None
+
+    if cache is not None and (lines := read_cache(cache, args.cache_age, time.time())) is not None:
+        _write_section(lines, args.cache_age)
+        return 0
+
     try:
         creds = credentials_from_args(args)
         with private_snmp_environment(creds) as env:
@@ -342,8 +441,15 @@ def main(argv: Sequence[str] | None = None, runner: Runner = run_command) -> int
             raise
         sys.stderr.write(f"agent_nxos_stp_tcn: {exc}\n")
         return 1
-    sys.stdout.write("\n".join(lines) + "\n")
+
+    if cache is not None:
+        write_cache(cache, lines)
+    _write_section(lines, args.cache_age)
     return 0
+
+
+def _write_section(lines: Sequence[str], cache_age: int) -> None:
+    sys.stdout.write("\n".join([section_header(collected_at(lines), cache_age), *lines]) + "\n")
 
 
 if __name__ == "__main__":

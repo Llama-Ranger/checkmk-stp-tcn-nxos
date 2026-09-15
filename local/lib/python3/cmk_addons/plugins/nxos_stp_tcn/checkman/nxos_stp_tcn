@@ -22,8 +22,10 @@ description:
  a change.
 
  Optionally, upper levels can be set on the topology change rate of each VLAN
- (changes per hour). A decreasing counter (reboot, Counter32 wrap) yields no
- rate for that check interval.
+ (changes per hour), measured between two collections. A decreasing counter
+ (reboot, Counter32 wrap) yields no rate for that interval. The special agent
+ rule can cache its answer, so a switch with many VLANs is queried at most
+ every configured interval instead of on every check.
 
  VLANs whose SNMP context does not answer are listed and set the service to a
  configurable state (default {UNKNOWN}); all other VLANs are still evaluated.

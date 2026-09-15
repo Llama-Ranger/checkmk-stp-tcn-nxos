@@ -6,6 +6,28 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-09-15
+
+### Added
+
+- "Query the switch at most every" in the special-agent rule. The agent stores
+  its answer in `$OMD_ROOT/tmp/check_mk/cache/nxos_stp_tcn.<host>` and re-serves
+  it until it reaches that age, so a switch with many VLANs is no longer queried
+  on every check. The section then carries `cached(<collected>,<validity>)`, so
+  Checkmk knows the age of the data and the service does not go stale between
+  two collections.
+
+  This is the alternative to raising the host's check interval, which would also
+  slow down every other data source of that host.
+
+### Changed
+
+- The section carries a `collected;<epoch>` line, and the change rate is measured
+  between two collections instead of between two checks. Without it, a cached
+  counter would report an hour's worth of changes as if they had happened in one
+  minute. A section written by an older agent has no such line; the check then
+  falls back to the current time, as before.
+
 ## [2.0.0] - 2026-09-14
 
 ### Changed (breaking)

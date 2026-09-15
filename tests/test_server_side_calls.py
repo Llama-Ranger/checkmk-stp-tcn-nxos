@@ -42,3 +42,9 @@ def test_auth_no_priv() -> None:
     assert args[args.index("--security-level") + 1] == "authNoPriv"
     assert "--priv-password-id" not in args
     assert args[args.index("--timeout") + 1] == "5"
+
+
+def test_cache_age_is_passed_only_when_configured() -> None:
+    assert "--cache-age" not in args_of(RAW)
+    args = args_of({**RAW, "cache_age": 3600.0})
+    assert args[args.index("--cache-age") + 1] == "3600"

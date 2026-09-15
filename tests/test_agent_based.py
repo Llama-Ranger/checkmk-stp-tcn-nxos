@@ -4,8 +4,10 @@
 """Check plugin tests. Values are taken from the real NX-OS 10.2(5) validation (see docs)."""
 
 from collections.abc import Mapping, MutableMapping
+from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from cmk.agent_based.v2 import Metric, Result, Service, State
 from cmk_addons.plugins.nxos_stp_tcn.agent_based import cisco_nexus_stp as stp
 from cmk_addons.plugins.nxos_stp_tcn.lib.metric_names import vlan_age_metric
@@ -283,3 +285,52 @@ def test_real_change_after_long_quiet_period_is_crit() -> None:
     run(section(vlan(7, 37, 2**32 - 6000)), store=store, now=0.0)
     changed = run(section(vlan(7, 38, 3000)), store=store, now=90.0)
     assert worst(changed) is State.CRIT
+
+
+# --- collection time -------------------------------------------------------------------------
+
+
+def cached_section(collected: int, changes: int) -> stp.Section:
+    parsed = stp.parse_nxos_stp_tcn(
+        [["collected", str(collected)], ["sysuptime", "2590160436"], vlan(200, changes, OLD)]
+    )
+    assert parsed is not None
+    return parsed
+
+
+def test_parse_reads_the_collection_time() -> None:
+    assert cached_section(1_700_000_000, 37).collected == 1_700_000_000.0
+    assert QUIET.collected is None  # an older agent does not write the line
+
+
+def test_rate_is_measured_between_collections_not_between_checks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store: dict[str, Any] = {}
+    monkeypatch.setattr(stp, "get_value_store", lambda: store)
+    monkeypatch.setattr(stp, "time", SimpleNamespace(time=lambda: 9_000_000.0))
+
+    first = list(stp.check_nxos_stp_tcn(DEFAULTS, cached_section(1_700_000_000, 37)))
+    assert "stp_topology_changes_rate" not in metrics(first)
+
+    # the cache is served again: same data, same collection time, so there is nothing to rate
+    repeat = list(stp.check_nxos_stp_tcn(DEFAULTS, cached_section(1_700_000_000, 37)))
+    assert "stp_topology_changes_rate" not in metrics(repeat)
+
+    # one hour later the switch was asked again and had three more changes
+    later = list(stp.check_nxos_stp_tcn(DEFAULTS, cached_section(1_700_003_600, 40)))
+    assert metrics(later)["stp_topology_changes_rate"] == 3.0
+
+
+def test_without_a_collection_time_the_check_falls_back_to_the_clock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store: dict[str, Any] = {}
+    monkeypatch.setattr(stp, "get_value_store", lambda: store)
+    clock = SimpleNamespace(now=9_000_000.0)
+    monkeypatch.setattr(stp, "time", SimpleNamespace(time=lambda: clock.now))
+
+    list(stp.check_nxos_stp_tcn(DEFAULTS, section(vlan(200, 37, OLD))))
+    clock.now += HOUR
+    later = list(stp.check_nxos_stp_tcn(DEFAULTS, section(vlan(200, 40, OLD))))
+    assert metrics(later)["stp_topology_changes_rate"] == 3.0

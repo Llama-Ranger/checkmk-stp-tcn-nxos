@@ -82,6 +82,25 @@ lib/vlan_ranges.py                  VLAN list parsing (shared)
 checkman/nxos_stp_tcn               man page
 ```
 
+### How often the switch is queried
+
+By default on every check: about 2 × (number of VLANs) SNMP GETs. A core with ~80 VLANs takes roughly half a
+minute of a one-minute check interval, which is a lot for data that changes rarely.
+
+Set **"Query the switch at most every"** in the special-agent rule (e.g. 1 hour). The agent then stores its
+answer in `$OMD_ROOT/tmp/check_mk/cache/nxos_stp_tcn.<host>` and re-serves it until it reaches that age. The
+file holds one host's section body and no credentials; the site's `tmp` is cleared on restart, so the first
+check after a restart collects again.
+
+Do **not** raise the host's check interval instead. That interval governs the host's `Check_MK` service,
+which fetches *every* data source of the host, so the switch's normal SNMP checks would slow down with it.
+The cache slows down this agent only.
+
+While the cache is served, the section carries `cached(<collection time>,<validity>)`. Checkmk then knows how
+old the data is, the service does not go stale between two collections, and the change rate is measured
+between collections rather than between checks. The reported "time since the last change" is frozen between
+collections too, so with a one-hour cache it advances in one-hour steps.
+
 ## 4. Required SNMP configuration
 
 Nothing changes on the switches. You need:
@@ -261,7 +280,8 @@ unset SA SX
   notification (see section 7).
 - One metric per VLAN: a core with ~80 VLANs records ~80 metrics in one service (plus 3 switch-wide).
 - Passphrases containing `"` or `\` are escaped for Net-SNMP's config parser but were not tested against a switch.
-- Each check cycle runs about 2 × (number of VLANs) SNMP GETs per switch (4 in parallel by default).
+- Each collection runs about 2 × (number of VLANs) SNMP GETs per switch (4 in parallel by default).
+  Without a cache that happens on every check; see "How often the switch is queried" in section 3.
 - The Checkmk 2.4 password-store access uses the internal `cmk.utils.password_store.lookup` (no public API in 2.4).
 
 ## 15. Migrating from a CLI-scraping check

@@ -17,6 +17,8 @@ from cmk.rulesets.v1.form_specs import (
     SingleChoice,
     SingleChoiceElement,
     String,
+    TimeMagnitude,
+    TimeSpan,
     validators,
 )
 from cmk.rulesets.v1.rule_specs import SpecialAgent, Topic
@@ -132,6 +134,23 @@ def _form() -> Dictionary:
                     title=Title("VLAN contexts queried in parallel"),
                     prefill=DefaultValue(4),
                     custom_validate=(validators.NumberInRange(min_value=1, max_value=16),),
+                ),
+            ),
+            "cache_age": DictElement(
+                parameter_form=TimeSpan(
+                    title=Title("Query the switch at most every"),
+                    help_text=Help(
+                        "A switch with many VLANs costs two SNMP requests per VLAN and can take "
+                        "half a minute to answer. With this set, the agent stores its answer and "
+                        "re-serves it until it reaches this age, so the switch is queried at most "
+                        "that often. Checkmk is told how old the data is, so the repeats are not "
+                        "counted as new measurements. Prefer this over a longer check interval "
+                        "for the host: the check interval also slows down every other data source "
+                        "of that host, this does not. Leave unset to query on every check."
+                    ),
+                    displayed_magnitudes=[TimeMagnitude.HOUR, TimeMagnitude.MINUTE],
+                    prefill=DefaultValue(3600.0),
+                    custom_validate=(validators.NumberInRange(min_value=60, max_value=86400),),
                 ),
             ),
         },
