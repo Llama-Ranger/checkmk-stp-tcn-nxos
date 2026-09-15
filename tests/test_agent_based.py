@@ -57,6 +57,11 @@ def metrics(results: list[Result | Metric]) -> dict[str, float]:
     return {m.name: m.value for m in results if isinstance(m, Metric)}
 
 
+# The per-VLAN metrics are opt-in (see "per-VLAN metrics" below). The tests that
+# read a single VLAN's value use them as the probe, so they ask for them.
+PER_VLAN: dict[str, Any] = {"per_vlan_metrics": True}
+
+
 # --- parsing ---------------------------------------------------------------------------------
 
 
@@ -112,7 +117,7 @@ def test_quiet_switch_is_ok_and_names_the_most_recent_change() -> None:
 
 
 def test_one_metric_and_graph_per_vlan() -> None:
-    values = metrics(run(QUIET))
+    values = metrics(run(QUIET, PER_VLAN))
     assert values[vlan_age_metric(1)] == 25861924.0
     assert values[vlan_age_metric(10)] == 200.0
     assert values[vlan_age_metric(200)] == 25866243.0
@@ -184,7 +189,7 @@ def test_worst_vlan_wins_and_the_summary_is_truncated() -> None:
 
 
 def test_unanswered_vlan_is_unknown_but_the_others_are_evaluated() -> None:
-    results = run(section(vlan(200, 37, OLD), ["vlan", "30", "timeout", "", ""]))
+    results = run(section(vlan(200, 37, OLD), ["vlan", "30", "timeout", "", ""]), PER_VLAN)
     assert worst(results) is State.UNKNOWN
     assert "1 VLAN without data: VLAN 30" in summary(results)
     assert "VLAN 30: SNMP context did not answer (timeout)" in details(results)
@@ -215,9 +220,9 @@ def test_vlans_without_spanning_tree_are_listed_but_not_monitored() -> None:
 
 
 def test_vlan_filter() -> None:
-    included = metrics(run(QUIET, {"vlans": ("include", "200")}))
+    included = metrics(run(QUIET, {**PER_VLAN, "vlans": ("include", "200")}))
     assert vlan_age_metric(200) in included and vlan_age_metric(1) not in included
-    excluded = metrics(run(QUIET, {"vlans": ("exclude", "1-10")}))
+    excluded = metrics(run(QUIET, {**PER_VLAN, "vlans": ("exclude", "1-10")}))
     assert vlan_age_metric(200) in excluded and vlan_age_metric(1) not in excluded
 
 
@@ -229,10 +234,14 @@ def test_filter_that_leaves_nothing_is_unknown() -> None:
 
 def test_new_and_removed_vlans_need_no_rediscovery() -> None:
     store: dict[str, Any] = {}
-    run(QUIET, store=store)
-    grown = run(section(vlan(1, 6, 2586192400), vlan(200, 37, OLD), vlan(555, 1, OLD)), store=store)
+    run(QUIET, PER_VLAN, store=store)
+    grown = run(
+        section(vlan(1, 6, 2586192400), vlan(200, 37, OLD), vlan(555, 1, OLD)),
+        PER_VLAN,
+        store=store,
+    )
     assert vlan_age_metric(555) in metrics(grown)
-    shrunk = run(section(vlan(1, 6, 2586192400)), store=store)
+    shrunk = run(section(vlan(1, 6, 2586192400)), PER_VLAN, store=store)
     assert vlan_age_metric(200) not in metrics(shrunk)
     assert worst(shrunk) is State.OK
 
@@ -272,11 +281,11 @@ def test_rate_levels_per_vlan() -> None:
 
 def test_timeticks_wrap_does_not_look_like_a_new_change() -> None:
     store: dict[str, Any] = {}
-    run(section(vlan(7, 37, 2**32 - 6000)), store=store, now=0.0)
-    wrapped = run(section(vlan(7, 37, 3000)), store=store, now=90.0)
+    run(section(vlan(7, 37, 2**32 - 6000)), PER_VLAN, store=store, now=0.0)
+    wrapped = run(section(vlan(7, 37, 3000)), PER_VLAN, store=store, now=90.0)
     assert worst(wrapped) is State.OK
     assert metrics(wrapped)[vlan_age_metric(7)] == 2**32 / 100 + 30
-    later = run(section(vlan(7, 37, 9000)), store=store, now=150.0)
+    later = run(section(vlan(7, 37, 9000)), PER_VLAN, store=store, now=150.0)
     assert metrics(later)[vlan_age_metric(7)] == 2**32 / 100 + 90
 
 
@@ -339,21 +348,28 @@ def test_without_a_collection_time_the_check_falls_back_to_the_clock(
 # --- per-VLAN metrics ------------------------------------------------------------------------
 
 
-def test_one_metric_per_vlan_can_be_turned_off() -> None:
-    switch_wide = {
-        "stp_topology_changes_total",
-        "stp_topology_changes_rate",
-        "stp_seconds_since_last_change",
-    }
-    without = metrics(run(QUIET, {"per_vlan_metrics": False}))
-    assert set(without) <= switch_wide
-    assert vlan_age_metric(200) not in without
-    # the VLANs are still evaluated and still listed
-    assert "3 VLANs" in summary(run(QUIET, {"per_vlan_metrics": False}))
-    assert any("VLAN 200" in d for d in details(run(QUIET, {"per_vlan_metrics": False})))
+SWITCH_WIDE = {
+    "stp_topology_changes_total",
+    "stp_topology_changes_rate",
+    "stp_seconds_since_last_change",
+}
 
 
-def test_turning_the_per_vlan_metrics_off_keeps_the_state() -> None:
+def test_only_the_switch_wide_metrics_by_default() -> None:
+    recorded = metrics(run(QUIET))
+    assert set(recorded) <= SWITCH_WIDE
+    assert vlan_age_metric(200) not in recorded
+
+
+def test_the_vlans_are_still_named_without_their_own_metrics() -> None:
+    assert "3 VLANs" in summary(run(QUIET))
+    assert any("VLAN 200" in d for d in details(run(QUIET)))
     recent = section(vlan(200, 38, 60000))  # 10 minutes ago: inside the default CRIT window
-    assert worst(run(recent, {"per_vlan_metrics": False})) is State.CRIT
-    assert vlan_age_metric(200) not in metrics(run(recent, {"per_vlan_metrics": False}))
+    assert worst(run(recent)) is State.CRIT
+    assert vlan_age_metric(200) not in metrics(run(recent))
+
+
+def test_one_metric_per_vlan_can_be_turned_on() -> None:
+    recorded = metrics(run(QUIET, {"per_vlan_metrics": True}))
+    assert vlan_age_metric(200) in recorded
+    assert set(recorded) - SWITCH_WIDE == {vlan_age_metric(v) for v in (1, 10, 200)}

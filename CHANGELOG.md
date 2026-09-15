@@ -6,6 +6,26 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-09-15
+
+### Changed (breaking)
+
+- "Record one metric per VLAN" is now **off** by default. A service that is not
+  covered by a rule records the three switch-wide metrics only, so after this
+  upgrade the per-VLAN graphs stop being updated until the option is switched
+  on. The data already recorded is not deleted: switching the option on resumes
+  the same graphs.
+
+  The reason for the flip is the graph count. One service on a core with 80
+  VLANs offered 80 graphs, most of which nobody opens, and the three switch-wide
+  metrics already cover all VLANs together.
+
+  Unchanged: every VLAN is queried, named in the summary, listed in the details
+  and able to set the service state.
+
+  To keep the previous behaviour, set "Record one metric per VLAN" in
+  *Cisco Nexus STP topology changes* before or right after the upgrade.
+
 ## [2.2.0] - 2026-09-15
 
 ### Added

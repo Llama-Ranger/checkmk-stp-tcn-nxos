@@ -39,9 +39,9 @@ def test_defaults_match_the_plugin() -> None:
     assert "warn_within" not in plugin.check_default_parameters  # WARN disabled by default
     assert form["state_vlan_error"].parameter_form.prefill.value == 3
     assert plugin.check_default_parameters["state_vlan_error"] == 3
-    # per-VLAN graphs stay on by default: turning them off is opt-in
-    assert form["per_vlan_metrics"].parameter_form.prefill.value is True
-    assert plugin.check_default_parameters["per_vlan_metrics"] is True
+    # per-VLAN graphs are opt-in: 80 VLANs would otherwise mean 80 graphs
+    assert form["per_vlan_metrics"].parameter_form.prefill.value is False
+    assert plugin.check_default_parameters["per_vlan_metrics"] is False
     assert plugin.check_default_parameters["vlans"] == ("all", None)
 
 

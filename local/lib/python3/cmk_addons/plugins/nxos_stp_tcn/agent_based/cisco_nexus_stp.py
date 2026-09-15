@@ -291,9 +291,10 @@ def _check(
             + _truncated([f"VLAN {vid}" for vid, _data in failed]),
         )
 
-    # one metric - and so one graph - per VLAN, unless the user asked for the
-    # switch-wide graphs only (a core with 80 VLANs otherwise carries 80 graphs)
-    if params.get("per_vlan_metrics", True):
+    # One metric - and so one graph - per VLAN, off by default: on a core with 80
+    # VLANs that is 80 graphs in one service, and the switch-wide metrics below
+    # already cover every VLAN together.
+    if params.get("per_vlan_metrics", False):
         for s in statuses:
             yield Metric(vlan_age_metric(s.vlan), s.age)
     # switch-wide metrics
@@ -334,7 +335,7 @@ check_plugin_nxos_stp_tcn = CheckPlugin(
         "crit_within": 43200.0,
         "rate_levels": ("no_levels", None),
         "vlans": ("all", None),
-        "per_vlan_metrics": True,
+        "per_vlan_metrics": False,
         "state_vlan_error": 3,
     },
 )

@@ -1,6 +1,6 @@
 [project]
 name = "checkmk-stp-tcn-nxos"
-version = "2.2.0"
+version = "3.0.0"
 description = "Checkmk extension: spanning-tree topology change (TCN) monitoring per VLAN for Cisco Nexus (NX-OS) via SNMPv3"
 readme = "README.md"
 authors = [{ name = "John Jimenez" }, { name = "Cledir Justo" }]

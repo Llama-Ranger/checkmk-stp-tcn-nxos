@@ -127,14 +127,15 @@ def _check_form() -> Dictionary:
                     title=Title("Record one metric per VLAN"),
                     label=Label("a graph for every VLAN, next to the switch-wide graphs"),
                     help_text=Help(
-                        "On a core with 80 VLANs this records 80 metrics in this one service, "
-                        "and the service then offers 80 graphs. Turn it off to keep only the "
-                        "three switch-wide metrics: total topology changes, their rate, and "
-                        "the time since the most recent change on any VLAN. The VLANs are "
-                        "still evaluated, still listed in the details and still set the state "
-                        "- only their individual graphs disappear."
+                        "Off by default: the service records the three switch-wide metrics "
+                        "(total topology changes, their rate, and the time since the most "
+                        "recent change on any VLAN), which already cover every VLAN together. "
+                        "Turn this on to get one metric, and so one graph, for each VLAN as "
+                        "well - on a core with 80 VLANs that is 80 graphs in this one service. "
+                        "Either way every VLAN is queried, named in the summary, listed in the "
+                        "details and able to set the service state."
                     ),
-                    prefill=DefaultValue(True),
+                    prefill=DefaultValue(False),
                 ),
             ),
             "state_vlan_error": DictElement(
