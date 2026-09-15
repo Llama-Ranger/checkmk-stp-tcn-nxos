@@ -1,4 +1,4 @@
-# nxos_stp_tcn: Cisco Nexus STP Topology Changes (Checkmk 2.4 / 2.5)
+# nxos_stp_tcn: Cisco Nexus STP Topology Changes (Checkmk 2.3 / 2.4 / 2.5)
 
 [![build](https://github.com/Llama-Ranger/checkmk-stp-tcn-nxos/actions/workflows/build.yml/badge.svg)](https://github.com/Llama-Ranger/checkmk-stp-tcn-nxos/actions/workflows/build.yml)
 
@@ -10,7 +10,7 @@ scraping and no per-switch custom check.
 | | |
 |---|---|
 | Package | `nxos_stp_tcn-<version>.mkp` from the [releases page](../../releases), or build it with `python3 scripts/build_mkp.py` |
-| Checkmk | 2.4.x and 2.5.x (Check API v2, Rulesets API v1, Graphing API v1, Server-side calls API v1) |
+| Checkmk | 2.3.x, 2.4.x and 2.5.x (Check API v2, Rulesets API v1, Graphing API v1, Server-side calls API v1) |
 | Verified devices | Nexus 9000 **C93240YC-FX2, NX-OS 10.2(5)** |
 | Not supported | Nexus 9000 C93180YC-FX3, NX-OS 10.4(5): the switch serves no BRIDGE-MIB STP objects over SNMP |
 | Authors | John Jimenez & Cledir Justo |
@@ -117,7 +117,7 @@ own copy, entered once.
 
 ### How credentials stay protected
 - The rule references password-store entries. Checkmk passes only `<id>:<store file>` on the command line.
-- The agent resolves the passphrase in memory (Checkmk 2.5: `cmk.password_store.v1_unstable`; 2.4:
+- The agent resolves the passphrase in memory (Checkmk 2.5: `cmk.password_store.v1_unstable`; 2.3 and 2.4:
   `cmk.utils.password_store`) and writes a Net-SNMP config file with mode 0600 in a private 0700 temp directory.
   `SNMPCONFPATH` points at it and the directory is deleted after every run.
   Passphrases and the user name never appear in `ps`, the command line, logs or output.
@@ -190,9 +190,10 @@ The per-VLAN metric definitions are generated for all VLAN IDs 1–4094, so each
 
 Perfometer: time since the most recent change on any VLAN (0–7 days focus).
 
-## 10. Installation (Checkmk 2.4 / 2.5)
+## 10. Installation (Checkmk 2.3 / 2.4 / 2.5)
 
-The package requires Checkmk 2.4.0 or later. Do not install it on 2.3 or older.
+The package requires Checkmk 2.3.0 or later. The tests run against the plug-in APIs of all three
+releases, and 2.3 was also verified on a running 2.3.0p49 site.
 
 1. Download `nxos_stp_tcn-<version>.mkp` from the [releases page](../../releases) (or build it, see
    [Development](#17-development)) and copy it to the Checkmk server.
@@ -231,7 +232,7 @@ rate metric needs two check intervals.
 
 - Same MKP. All APIs used exist unchanged in 2.5 (verified against the 2.5.0 source; tests run against both).
 - Password store: 2.5 uses the public `cmk.password_store.v1_unstable` API ("unstable" by Checkmk's
-  naming). The agent falls back to the 2.4 API automatically. After the upgrade, run `cmk -d <HOST>` once
+  naming). The agent falls back to the 2.3/2.4 API automatically. After the upgrade, run `cmk -d <HOST>` once
   to confirm the agent still reads its passwords.
 - 2.5 renames editions (Raw → Community, etc.). No effect on this package.
 - `version.usable_until` is not set, so the package stays enabled across upgrades. Re-test before upgrading
@@ -282,7 +283,8 @@ unset SA SX
 - Passphrases containing `"` or `\` are escaped for Net-SNMP's config parser but were not tested against a switch.
 - Each collection runs about 2 × (number of VLANs) SNMP GETs per switch (4 in parallel by default).
   Without a cache that happens on every check; see "How often the switch is queried" in section 3.
-- The Checkmk 2.4 password-store access uses the internal `cmk.utils.password_store.lookup` (no public API in 2.4).
+- On Checkmk 2.3 and 2.4 the password store is read through the internal `cmk.utils.password_store.lookup`
+  (those releases have no public API for it); the signature is the same in both.
 
 ## 15. Migrating from a CLI-scraping check
 
@@ -311,14 +313,16 @@ side.
 ## 17. Development
 
 The repository mirrors a site's layout: everything below `local/` can be copied 1:1 into `~/local/` of a
-Checkmk 2.4/2.5 test site. `package.manifest` lists the packaged files and holds the version.
+Checkmk 2.3/2.4/2.5 test site. `package.manifest` lists the packaged files and holds the version.
 
 The tests run against Checkmk's **real** plug-in APIs, installed from the Checkmk source of the release
-branch (they are not on PyPI). CI does exactly this for 2.4.0 (Python 3.12) and 2.5.0 (Python 3.13).
+branch (they are not on PyPI). CI does exactly this for 2.3.0 and 2.4.0 (Python 3.12) and 2.5.0
+(Python 3.13).
 Clone outside the repository so ruff and git don't see it:
 
 ```bash
-# Checkmk 2.4 (for 2.5: --branch 2.5.0, python3.13, packages cmk-plugin-apis cmk-mkp-tool, plus cryptography)
+# Checkmk 2.4 (2.3: --branch 2.3.0, same packages; 2.5: --branch 2.5.0, python3.13,
+#               packages cmk-plugin-apis cmk-mkp-tool, plus cryptography)
 git clone --depth 1 --filter=blob:none --sparse --branch 2.4.0 https://github.com/Checkmk/checkmk.git ../checkmk-2.4.0
 git -C ../checkmk-2.4.0 sparse-checkout set packages/cmk-agent-based packages/cmk-rulesets \
     packages/cmk-graphing packages/cmk-server-side-calls packages/cmk-mkp-tool
@@ -340,7 +344,7 @@ python3 scripts/build_mkp.py --update-manifest       # after adding/removing fil
 
 `.github/workflows/build.yml` runs on every push to `main` and on pull requests:
 - ruff lint and format check, manifest and version check
-- tests against Checkmk 2.4.0 and 2.5.0
+- tests against Checkmk 2.3.0, 2.4.0 and 2.5.0
 - MKP build, uploaded as the `mkp` workflow artifact
 
 To release, bump `version` in `package.manifest`, `pyproject.toml` and `__version__` in

@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-09-15
+
+### Changed
+
+- `version.min_required` is 2.3.0: the package installs on Checkmk 2.3 as well.
+  Every API it imports exists unchanged in 2.3, the password store is read
+  through the same `cmk.utils.password_store.lookup` as on 2.4, and the package
+  was run on a 2.3.0p49 site against a live Nexus. CI now runs the tests against
+  the 2.3.0 plug-in APIs too, so the claim keeps being checked.
+
 ## [2.1.0] - 2026-09-15
 
 ### Added

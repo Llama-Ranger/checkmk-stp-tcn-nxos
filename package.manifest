@@ -17,8 +17,8 @@
     },
     "name": "nxos_stp_tcn",
     "title": "Cisco Nexus STP Topology Changes",
-    "version": "2.1.0",
-    "version.min_required": "2.4.0",
+    "version": "2.1.1",
+    "version.min_required": "2.3.0",
     "version.packaged": "checkmk-stp-tcn-nxos build_mkp.py",
     "version.usable_until": null
 }

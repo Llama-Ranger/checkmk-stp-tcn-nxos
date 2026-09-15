@@ -39,6 +39,9 @@ jobs:
       matrix:
         include:
           # Python versions match the ones the Checkmk sites ship with.
+          - checkmk: "2.3.0"
+            python: "3.12"
+            packages: cmk-agent-based cmk-rulesets cmk-graphing cmk-server-side-calls cmk-mkp-tool
           - checkmk: "2.4.0"
             python: "3.12"
             packages: cmk-agent-based cmk-rulesets cmk-graphing cmk-server-side-calls cmk-mkp-tool

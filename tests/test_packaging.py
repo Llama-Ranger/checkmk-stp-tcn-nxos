@@ -51,7 +51,8 @@ def test_manifest_has_the_fields_checkmk_requires(manifest: dict) -> None:
     ):
         assert key in manifest, key
     assert manifest["name"] == "nxos_stp_tcn"
-    assert manifest["version.min_required"] == "2.4.0"
+    # 2.3 is supported: the tests run against the 2.3.0 plug-in APIs in CI as well
+    assert manifest["version.min_required"] == "2.3.0"
 
 
 def test_every_plugin_directory_is_present() -> None:

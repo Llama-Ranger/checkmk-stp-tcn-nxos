@@ -31,7 +31,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-__version__ = "2.1.0"
+__version__ = "2.1.1"
 
 SECTION_NAME = "nxos_stp_tcn"
 
@@ -99,7 +99,7 @@ class SnmpValue:
 
 
 # --------------------------------------------------------------------------------------------
-# Password store (Checkmk 2.5 public-but-unstable API, 2.4 internal API)
+# Password store (Checkmk 2.5 public-but-unstable API, 2.3/2.4 internal API)
 # --------------------------------------------------------------------------------------------
 
 
@@ -114,7 +114,7 @@ def resolve_secret(reference: str) -> str:
         try:
             from cmk.password_store.v1_unstable import dereference_secret  # Checkmk 2.5
         except ImportError:
-            from cmk.utils import password_store  # Checkmk 2.4
+            from cmk.utils import password_store  # Checkmk 2.3 and 2.4
 
             pw_id, pw_file = reference.split(":", 1)
             return password_store.lookup(Path(pw_file), pw_id)
