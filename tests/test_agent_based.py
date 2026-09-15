@@ -334,3 +334,26 @@ def test_without_a_collection_time_the_check_falls_back_to_the_clock(
     clock.now += HOUR
     later = list(stp.check_nxos_stp_tcn(DEFAULTS, section(vlan(200, 40, OLD))))
     assert metrics(later)["stp_topology_changes_rate"] == 3.0
+
+
+# --- per-VLAN metrics ------------------------------------------------------------------------
+
+
+def test_one_metric_per_vlan_can_be_turned_off() -> None:
+    switch_wide = {
+        "stp_topology_changes_total",
+        "stp_topology_changes_rate",
+        "stp_seconds_since_last_change",
+    }
+    without = metrics(run(QUIET, {"per_vlan_metrics": False}))
+    assert set(without) <= switch_wide
+    assert vlan_age_metric(200) not in without
+    # the VLANs are still evaluated and still listed
+    assert "3 VLANs" in summary(run(QUIET, {"per_vlan_metrics": False}))
+    assert any("VLAN 200" in d for d in details(run(QUIET, {"per_vlan_metrics": False})))
+
+
+def test_turning_the_per_vlan_metrics_off_keeps_the_state() -> None:
+    recent = section(vlan(200, 38, 60000))  # 10 minutes ago: inside the default CRIT window
+    assert worst(run(recent, {"per_vlan_metrics": False})) is State.CRIT
+    assert vlan_age_metric(200) not in metrics(run(recent, {"per_vlan_metrics": False}))

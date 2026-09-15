@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-09-15
+
+### Added
+
+- "Record one metric per VLAN" in the service rule, on by default. Turned off,
+  the service records only the three switch-wide metrics (cumulative changes,
+  change rate, time since the most recent change on any VLAN) instead of one
+  metric per VLAN, which on a core with 80 VLANs meant 80 graphs in a single
+  service.
+
+  What the option does not change: every VLAN is still queried, still named in
+  the summary, still listed in the details, and still decides the service state.
+  Only the per-VLAN graphs disappear. Existing per-VLAN data is kept, so turning
+  the option back on resumes the same graphs.
+
 ## [2.1.1] - 2026-09-15
 
 ### Changed

@@ -31,6 +31,10 @@ description:
  configurable state (default {UNKNOWN}); all other VLANs are still evaluated.
  The same rule can restrict monitoring to, or exclude, specific VLANs.
 
+ Every VLAN gets its own metric, and so its own graph. On a switch with many
+ VLANs that can be turned off in the rule, leaving the three switch-wide
+ metrics. The summary and the details keep listing every VLAN either way.
+
  Verified on Nexus 9000 C93240YC-FX2 with NX-OS 10.2(5). NX-OS 10.4(5) on
  C93180YC-FX3 does not provide these BRIDGE-MIB objects via SNMP.
 

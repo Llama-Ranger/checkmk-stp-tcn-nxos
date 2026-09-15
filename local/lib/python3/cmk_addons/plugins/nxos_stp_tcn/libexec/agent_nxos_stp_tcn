@@ -31,7 +31,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
-__version__ = "2.1.1"
+__version__ = "2.2.0"
 
 SECTION_NAME = "nxos_stp_tcn"
 

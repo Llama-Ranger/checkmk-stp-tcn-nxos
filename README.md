@@ -154,6 +154,7 @@ Every setting applies to each VLAN; the service takes the state of the worst VLA
 | Warning if the last topology change of a VLAN was within | not set (no WARN) | must be longer than the CRIT window |
 | Upper levels on the topology change rate of a VLAN | no levels | changes/hour, e.g. WARN 6, CRIT 30 |
 | VLANs to monitor | all VLANs with STP data | or only / all except listed VLANs (`10, 20-30, 200`) |
+| Record one metric per VLAN | on | off keeps only the three switch-wide metrics; see section 9 |
 | State if a VLAN cannot be queried | UNKNOWN | the VLAN is listed; all other VLANs are still evaluated |
 
 Examples:
@@ -171,7 +172,7 @@ after every reboot.
 
 | Metric | Unit | Meaning |
 |---|---|---|
-| `stp_vlan_<id>_seconds_since_last_change` | time | per VLAN: seconds since that VLAN's last topology change (since STP start if there never was one) |
+| `stp_vlan_<id>_seconds_since_last_change` | time | per VLAN: seconds since that VLAN's last topology change (since STP start if there never was one). Not recorded when "Record one metric per VLAN" is off |
 | `stp_seconds_since_last_change` | time | switch-wide: the most recent topology change on any VLAN |
 | `stp_topology_changes_total` | count | switch-wide: sum of the cumulative topology changes of all VLANs (resets on reboot) |
 | `stp_topology_changes_rate` | /h | switch-wide: sum of the per-VLAN change rates over the last check interval; a VLAN whose counter decreased (reboot, Counter32 wrap) contributes no rate for that interval |
@@ -189,6 +190,12 @@ The per-VLAN metric definitions are generated for all VLAN IDs 1–4094, so each
 | STP topology changes (all VLANs, cumulative) | the counter; steps show when changes happened |
 
 Perfometer: time since the most recent change on any VLAN (0–7 days focus).
+
+**Too many graphs?** A core with 80 VLANs gives this one service 80 per-VLAN graphs. Turn off **"Record one
+metric per VLAN"** in the service rule (section 7) and only the three switch-wide graphs remain: change
+rate, cumulative changes, and time since the most recent change on any VLAN. The VLANs are still queried,
+still listed in the service details and still decide the state; only their individual graphs go away.
+Existing per-VLAN data is not deleted, so turning the option back on resumes the same graphs.
 
 ## 10. Installation (Checkmk 2.3 / 2.4 / 2.5)
 
@@ -280,6 +287,7 @@ unset SA SX
 - One service means one state: a second VLAN changing while the service is already CRIT raises no new
   notification (see section 7).
 - One metric per VLAN: a core with ~80 VLANs records ~80 metrics in one service (plus 3 switch-wide).
+  Can be turned off in the service rule, leaving the three switch-wide metrics (section 9).
 - Passphrases containing `"` or `\` are escaped for Net-SNMP's config parser but were not tested against a switch.
 - Each collection runs about 2 × (number of VLANs) SNMP GETs per switch (4 in parallel by default).
   Without a cache that happens on every check; see "How often the switch is queried" in section 3.

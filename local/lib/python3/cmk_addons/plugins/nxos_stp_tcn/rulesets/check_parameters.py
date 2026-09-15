@@ -6,8 +6,9 @@
 
 from collections.abc import Mapping
 
-from cmk.rulesets.v1 import Help, Message, Title
+from cmk.rulesets.v1 import Help, Label, Message, Title
 from cmk.rulesets.v1.form_specs import (
+    BooleanChoice,
     CascadingSingleChoice,
     CascadingSingleChoiceElement,
     DefaultValue,
@@ -118,6 +119,22 @@ def _check_form() -> Dictionary:
                             parameter_form=_vlan_list(Title("VLAN IDs")),
                         ),
                     ],
+                ),
+            ),
+            "per_vlan_metrics": DictElement(
+                required=True,
+                parameter_form=BooleanChoice(
+                    title=Title("Record one metric per VLAN"),
+                    label=Label("a graph for every VLAN, next to the switch-wide graphs"),
+                    help_text=Help(
+                        "On a core with 80 VLANs this records 80 metrics in this one service, "
+                        "and the service then offers 80 graphs. Turn it off to keep only the "
+                        "three switch-wide metrics: total topology changes, their rate, and "
+                        "the time since the most recent change on any VLAN. The VLANs are "
+                        "still evaluated, still listed in the details and still set the state "
+                        "- only their individual graphs disappear."
+                    ),
+                    prefill=DefaultValue(True),
                 ),
             ),
             "state_vlan_error": DictElement(
