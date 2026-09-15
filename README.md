@@ -148,6 +148,11 @@ discovered. If the switch has no VLAN context table at all, the host's "Check_MK
 **Setup → Services → Service monitoring rules → "Cisco Nexus STP topology changes"**, condition: host.
 Every setting applies to each VLAN; the service takes the state of the worst VLAN.
 
+Mind the two rules with almost the same name. This one, under *Service monitoring rules*, holds the
+thresholds, the VLAN filter and the per-VLAN graphs. The one under *Setup → Agents → Other integrations*,
+called "Cisco Nexus STP topology changes **(SNMPv3 VLAN contexts)**", holds the credentials, the parallelism
+and the query interval (section 3).
+
 | Setting | Default | Meaning |
 |---|---|---|
 | Critical if the last topology change of a VLAN was within | **12 hours** | |
